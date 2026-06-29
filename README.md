@@ -27,7 +27,23 @@ Binance (WS)     ──→ binance.trades.raw  ──┘         ↓
 | **Ingest metrics** | http://localhost:8000/metrics | Métricas producer CoinGecko |
 | **Binance metrics** | http://localhost:8001/metrics | Métricas producer Binance WS |
 
-### Metabase (primera vez)
+### Metabase
+
+**Dashboard exportado** en [`metabase/`](metabase/) — import en un comando:
+
+```bash
+# 1. Conecta PostgreSQL en Metabase (primera vez): host postgres, DB cryptopulse, schema gold
+# 2. Importa dashboard:
+METABASE_EMAIL=tu@email.com \
+METABASE_PASSWORD=tu_password \
+python3 metabase/setup_dashboard.py
+```
+
+Abre la URL que imprime el script (p. ej. `http://localhost:3000/dashboard/...`).
+
+Dashboard **Crypto Pulse — Prices**: spread multi-fuente, precios latest, evolución diaria. Detalle en [`metabase/README.md`](metabase/README.md).
+
+#### Metabase (primera vez — conexión DB)
 
 1. Abre http://localhost:3000 y crea tu cuenta admin.
 2. **Add database** → PostgreSQL:
@@ -36,7 +52,7 @@ Binance (WS)     ──→ binance.trades.raw  ──┘         ↓
    - Database: `cryptopulse`
    - User / Password: `pulse` / `pulse`
 3. En la conexión, limita el schema visible a **`gold`**.
-4. Crea preguntas sobre `mart_latest_prices`, `mart_daily_prices`, `fct_price_changes`, **`mart_source_price_comparison`** (spread CoinGecko vs Binance).
+4. Ejecuta `python3 metabase/setup_dashboard.py` (ver arriba) o crea preguntas manualmente desde `metabase/questions/`.
 
 Si Metabase no arranca (DB `metabase` inexistente en volúmenes antiguos):
 
@@ -271,6 +287,9 @@ docker compose up --build flink-submitter
 | `TRANSFORM_INTERVAL_SECONDS` | `300` | Intervalo dbt + GX |
 | `GE_FRESHNESS_MINUTES` | `10` | Máx. antigüedad datos raw |
 | `GRAFANA_ADMIN_PASSWORD` | `admin` | Password admin Grafana |
+| `METABASE_URL` | `http://localhost:3000` | URL Metabase (import dashboard) |
+| `METABASE_EMAIL` | — | Email admin Metabase (`setup_dashboard.py`) |
+| `METABASE_PASSWORD` | — | Password admin Metabase |
 
 ## Paso 3: Observabilidad
 
