@@ -92,6 +92,19 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
+### Publicar en GitHub (primera vez)
+
+1. Crea el repo vacío en https://github.com/new → nombre `crypto-pulse` (sin README).
+2. En tu máquina (el remote `origin` ya apunta a `kegare825/crypto-pulse`):
+
+```bash
+git push -u origin main
+```
+
+GitHub **no acepta contraseña** en `git push`. Usa un [Personal Access Token](https://github.com/settings/tokens) (scope `repo`) como contraseña, o configura [SSH](https://docs.github.com/en/authentication/connecting-to-github-with-ssh).
+
+3. Tras el push, abre **Actions** y confirma que el workflow **CI** pasa en verde. El badge del README se activará solo.
+
 ## Contrato de eventos
 
 Schema compartido: [`contracts/crypto_price_event.schema.json`](contracts/crypto_price_event.schema.json) — validado en CI contra eventos de CoinGecko y Binance.
