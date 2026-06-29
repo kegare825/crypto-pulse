@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "collection": {
+    "name": "Crypto Pulse",
+    "description": "Business dashboards on schema gold — portfolio export."
+  },
+  "dashboard": {
+    "name": "Crypto Pulse — Prices",
+    "description": "Multi-source price comparison (CoinGecko REST vs Binance WS)."
+  },
+  "cards": [
+    {
+      "name": "Source price comparison",
+      "description": "Spread between CoinGecko and Binance per coin",
+      "sql_file": "questions/01_source_price_comparison.sql",
+      "display": "table",
+      "layout": { "row": 0, "col": 0, "size_x": 24, "size_y": 8 }
+    },
+    {
+      "name": "Latest prices by source",
+      "sql_file": "questions/02_latest_prices_by_source.sql",
+      "display": "table",
+      "layout": { "row": 8, "col": 0, "size_x": 12, "size_y": 6 }
+    },
+    {
+      "name": "Latest prices (CoinGecko)",
+      "sql_file": "questions/03_latest_prices_coingecko.sql",
+      "display": "table",
+      "layout": { "row": 8, "col": 12, "size_x": 12, "size_y": 6 }
+    },
+    {
+      "name": "Daily average price by source",
+      "sql_file": "questions/04_daily_avg_by_source.sql",
+      "display": "line",
+      "visualization_settings": {
+        "graph.dimensions": ["price_date", "source"],
+        "graph.metrics": ["avg_price_usd"]
+      },
+      "layout": { "row": 14, "col": 0, "size_x": 24, "size_y": 8 }
+    },
+    {
+      "name": "Spread % by coin",
+      "sql_file": "questions/05_spread_pct_by_coin.sql",
+      "display": "bar",
+      "visualization_settings": {
+        "graph.dimensions": ["coin_id"],
+        "graph.metrics": ["spread_pct"]
+      },
+      "layout": { "row": 22, "col": 0, "size_x": 24, "size_y": 6 }
+    }
+  ]
+}
