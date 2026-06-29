@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: crypto-pulse
+    orgId: 1
+    folder: Crypto Pulse
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

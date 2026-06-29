@@ -1,0 +1,77 @@
+groups:
+  - name: crypto_pulse_ingest
+    rules:
+      - alert: CoingeckoPollStale
+        expr: time() - crypto_pulse_last_successful_poll_timestamp > 300
+        for: 2m
+        labels:
+          severity: warning
+          service: coingecko-ingest
+        annotations:
+          summary: "CoinGecko ingest has not polled successfully in 5+ minutes"
+          description: "Last successful poll was {{ $value | humanizeDuration }} ago. Check ingest logs and CoinGecko API availability."
+
+      - alert: CoingeckoApiErrors
+        expr: increase(crypto_pulse_api_errors_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: coingecko-ingest
+        annotations:
+          summary: "CoinGecko API errors detected"
+          description: "{{ $value }} API/publish errors in the last 15 minutes."
+
+      - alert: BinancePublishStale
+        expr: sum(increase(crypto_pulse_binance_messages_published_total[10m])) == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: binance-ingest
+        annotations:
+          summary: "Binance ingest published no throttled messages in 10+ minutes"
+          description: "WebSocket may be disconnected or throttle is blocking all trades."
+
+      - alert: BinanceWsErrors
+        expr: increase(crypto_pulse_binance_ws_errors_total[15m]) > 3
+        for: 2m
+        labels:
+          severity: warning
+          service: binance-ingest
+        annotations:
+          summary: "Repeated Binance WebSocket errors"
+          description: "{{ $value }} WS errors in 15 minutes — check reconnect loop."
+
+  - name: crypto_pulse_streaming
+    rules:
+      - alert: FlinkNoRunningJobs
+        expr: flink_jobmanager_numRunningJobs == 0
+        for: 3m
+        labels:
+          severity: critical
+          service: flink
+        annotations:
+          summary: "No Flink jobs are running"
+          description: "The Kafka → PostgreSQL streaming job is down. Re-run flink-submitter."
+
+      - alert: KafkaConsumerLagHigh
+        expr: |
+          sum(kafka_consumergroup_lag{consumergroup=~"flink-crypto-pulse-.*"}) > 5000
+        for: 10m
+        labels:
+          severity: warning
+          service: kafka
+        annotations:
+          summary: "Flink consumer lag is high"
+          description: "Total lag across Flink consumer groups is {{ $value }} messages."
+
+  - name: crypto_pulse_data
+    rules:
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: postgres
+        annotations:
+          summary: "PostgreSQL exporter cannot reach the database"
+          description: "Warehouse unavailable — raw/silver/gold writes will fail."
