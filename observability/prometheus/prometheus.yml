@@ -1,0 +1,43 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: ingest
+    static_configs:
+      - targets: ["ingest:8000"]
+        labels:
+          service: coingecko-producer
+
+  - job_name: binance-ingest
+    static_configs:
+      - targets: ["binance-ingest:8001"]
+        labels:
+          service: binance-producer
+
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: flink-jobmanager
+    static_configs:
+      - targets: ["flink-jobmanager:9249"]
+        labels:
+          component: jobmanager
+
+  - job_name: flink-taskmanager
+    static_configs:
+      - targets: ["flink-taskmanager:9250"]
+        labels:
+          component: taskmanager

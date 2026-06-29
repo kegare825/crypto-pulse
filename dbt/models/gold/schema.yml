@@ -1,0 +1,72 @@
+version: 2
+
+models:
+  - name: mart_latest_prices
+    description: Latest price snapshot per coin for dashboards
+    columns:
+      - name: coin_id
+        tests:
+          - not_null
+          - unique
+          - accepted_values:
+              values: ['bitcoin', 'ethereum', 'solana']
+      - name: price_usd
+        tests:
+          - not_null
+      - name: last_recorded_at
+        tests:
+          - not_null
+
+  - name: mart_daily_prices
+    description: Daily OHLC-style aggregates per coin
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - coin_id
+            - source
+            - price_date
+    columns:
+      - name: sample_count
+        tests:
+          - not_null
+
+  - name: fct_price_changes
+    description: Point-to-point price changes per tick
+    columns:
+      - name: coin_id
+        tests:
+          - not_null
+      - name: source
+        tests:
+          - not_null
+      - name: recorded_at
+        tests:
+          - not_null
+
+  - name: mart_latest_prices_by_source
+    description: Latest throttled/stream price per coin and source
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - coin_id
+            - source
+    columns:
+      - name: source
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['coingecko', 'binance']
+
+  - name: mart_source_price_comparison
+    description: Side-by-side CoinGecko vs Binance with spread
+    columns:
+      - name: coin_id
+        tests:
+          - not_null
+          - unique
+      - name: coingecko_price_usd
+        tests:
+          - not_null
+      - name: binance_price_usd
+        tests:
+          - not_null

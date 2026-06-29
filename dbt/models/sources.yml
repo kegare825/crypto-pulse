@@ -1,0 +1,31 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: Landing zone — events written by Flink from Kafka
+    tables:
+      - name: crypto_prices
+        description: Raw price ticks from CoinGecko via Kafka/Flink
+        loaded_at_field: recorded_at
+        freshness:
+          warn_after: { count: 10, period: minute }
+          error_after: { count: 30, period: minute }
+        columns:
+          - name: coin_id
+            description: CoinGecko coin identifier
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["bitcoin", "ethereum", "solana"]
+          - name: price_usd
+            tests:
+              - not_null
+          - name: recorded_at
+            tests:
+              - not_null
+          - name: source
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["coingecko", "binance"]

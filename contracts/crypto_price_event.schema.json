@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/crypto-pulse/contracts/crypto_price_event.schema.json",
+  "title": "CryptoPriceEvent",
+  "description": "Unified price event published to Kafka by CoinGecko and Binance ingest services.",
+  "type": "object",
+  "required": ["coin_id", "symbol", "price_usd", "event_time", "source"],
+  "additionalProperties": false,
+  "properties": {
+    "coin_id": {
+      "type": "string",
+      "enum": ["bitcoin", "ethereum", "solana"]
+    },
+    "symbol": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 8
+    },
+    "price_usd": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "market_cap": {
+      "type": ["number", "null"]
+    },
+    "change_24h": {
+      "type": ["number", "null"]
+    },
+    "event_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["coingecko", "binance"]
+    }
+  }
+}
