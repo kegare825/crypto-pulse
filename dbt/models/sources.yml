@@ -3,29 +3,44 @@ version: 2
 sources:
   - name: raw
     schema: raw
-    description: Landing zone — events written by Flink from Kafka
+    description: >
+      Landing zone written by Flink from Kafka. One row per price tick per source;
+      immutable append-only stream landed in PostgreSQL.
     tables:
       - name: crypto_prices
-        description: Raw price ticks from CoinGecko via Kafka/Flink
+        description: >
+          Raw unified price events from CoinGecko (REST poll) and Binance (WS trades).
+          Primary key (coin_id, source, recorded_at).
         loaded_at_field: recorded_at
         freshness:
           warn_after: { count: 10, period: minute }
           error_after: { count: 30, period: minute }
         columns:
           - name: coin_id
-            description: CoinGecko coin identifier
+            description: Canonical asset id (bitcoin, ethereum, solana)
             tests:
               - not_null
               - accepted_values:
                   values: ["bitcoin", "ethereum", "solana"]
-          - name: price_usd
-            tests:
-              - not_null
-          - name: recorded_at
-            tests:
-              - not_null
           - name: source
+            description: Ingest origin — coingecko or binance
             tests:
               - not_null
               - accepted_values:
                   values: ["coingecko", "binance"]
+          - name: symbol
+            description: Short ticker symbol (btc, eth, sol)
+          - name: price_usd
+            description: USD price at event time
+            tests:
+              - not_null
+          - name: market_cap
+            description: USD market cap (CoinGecko only; null for Binance)
+          - name: change_24h
+            description: 24h percent change (CoinGecko only)
+          - name: recorded_at
+            description: Event timestamp (UTC) from the source message
+            tests:
+              - not_null
+          - name: ingested_at
+            description: Warehouse insert time (default NOW())

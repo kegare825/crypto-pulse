@@ -13,6 +13,8 @@ import psycopg2
 ALLOWED_COINS = {"bitcoin", "ethereum", "solana"}
 ALLOWED_SOURCES = {"coingecko", "binance"}
 FRESHNESS_MINUTES = int(os.environ.get("GE_FRESHNESS_MINUTES", "10"))
+MIN_ROWS_PER_SOURCE = int(os.environ.get("GE_MIN_ROWS_PER_SOURCE", "1"))
+MIN_COINS_PER_SOURCE = int(os.environ.get("GE_MIN_COINS_PER_SOURCE", "3"))
 
 
 def pg_connection():
@@ -102,7 +104,36 @@ def validate_raw(conn) -> bool:
         check_freshness=True,
         check_source=True,
     )
+    ok = validate_source_volume(df) and ok
     print(f"raw => {'PASS' if ok else 'FAIL'}\n")
+    return ok
+
+
+def validate_source_volume(df: pd.DataFrame) -> bool:
+    """Expect minimum row volume per source and full coin coverage."""
+    print("=== raw volume by source ===")
+    if "source" not in df.columns:
+        print("  [WARN] source column missing")
+        return False
+
+    ok = True
+    counts = df.groupby("source").size()
+    for source in sorted(ALLOWED_SOURCES):
+        count = int(counts.get(source, 0))
+        status = "OK" if count >= MIN_ROWS_PER_SOURCE else "FAIL"
+        print(f"  [{status}] {source}: {count} rows (min {MIN_ROWS_PER_SOURCE})")
+        ok = ok and count >= MIN_ROWS_PER_SOURCE
+
+        coins = set(df.loc[df["source"] == source, "coin_id"].unique())
+        coin_ok = ALLOWED_COINS.issubset(coins)
+        status = "OK" if coin_ok else "FAIL"
+        print(
+            f"  [{status}] {source}: {len(coins)} coins "
+            f"(expected {len(ALLOWED_COINS)}: {sorted(ALLOWED_COINS)})"
+        )
+        ok = ok and coin_ok
+
+    print(f"volume => {'PASS' if ok else 'FAIL'}\n")
     return ok
 
 

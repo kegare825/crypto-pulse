@@ -33,9 +33,9 @@ BEGIN
         SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = 'crypto_prices'
     ) THEN
-        INSERT INTO raw.crypto_prices (coin_id, symbol, price_usd, market_cap, change_24h, recorded_at)
-        SELECT coin_id, symbol, price_usd, market_cap, change_24h, recorded_at
+        INSERT INTO raw.crypto_prices (coin_id, source, symbol, price_usd, market_cap, change_24h, recorded_at)
+        SELECT coin_id, 'coingecko', symbol, price_usd, market_cap, change_24h, recorded_at
         FROM public.crypto_prices
-        ON CONFLICT (coin_id, recorded_at) DO NOTHING;
+        ON CONFLICT (coin_id, source, recorded_at) DO NOTHING;
     END IF;
 END $$;

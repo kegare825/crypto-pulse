@@ -51,6 +51,75 @@ jobs:
         working-directory: dbt
         run: dbt compile --profiles-dir .
 
+  dbt-integration:
+    name: dbt run & test (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: cryptopulse
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulse -d cryptopulse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: cryptopulse
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Postgres client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dbt
+        run: pip install dbt-postgres==1.9.0
+
+      - name: Init database and seed
+        run: bash ci/init_postgres.sh
+
+      - name: dbt deps, run, test
+        working-directory: dbt
+        run: |
+          dbt deps --profiles-dir .
+          dbt run --profiles-dir .
+          dbt test --profiles-dir .
+
+  dbt-docs:
+    name: dbt docs generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dbt
+        run: pip install dbt-postgres==1.9.0
+
+      - name: Generate documentation
+        run: bash scripts/generate_dbt_docs.sh
+
+      - name: Upload dbt docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-docs
+          path: docs/dbt/
+          retention-days: 30
+
   infra:
     name: Docker & Prometheus rules
     runs-on: ubuntu-latest

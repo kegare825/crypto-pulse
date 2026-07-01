@@ -2,27 +2,41 @@ version: 2
 
 models:
   - name: stg_crypto_prices
-    description: Staged and filtered raw price events
+    description: >
+      Staging view over raw.crypto_prices. Casts types, trims strings, filters nulls
+      and non-positive prices. No deduplication at this layer.
     columns:
       - name: coin_id
+        description: Canonical asset id
         tests:
           - not_null
           - accepted_values:
               values: ['bitcoin', 'ethereum', 'solana']
       - name: source
+        description: coingecko or binance
         tests:
           - not_null
           - accepted_values:
               values: ['coingecko', 'binance']
+      - name: symbol
+        description: Lowercase ticker
       - name: price_usd
+        description: USD price
         tests:
           - not_null
+      - name: market_cap
+        description: USD market cap when available
+      - name: change_24h
+        description: 24h change percent when available
       - name: recorded_at
+        description: Event timestamp UTC
         tests:
           - not_null
 
   - name: crypto_prices_clean
-    description: Deduplicated silver price facts
+    description: >
+      Silver fact table. Incremental load with deduplication on
+      (coin_id, source, recorded_at). Primary cleaned input for gold marts.
     tests:
       - dbt_utils.unique_combination_of_columns:
           combination_of_columns:
@@ -31,11 +45,24 @@ models:
             - recorded_at
     columns:
       - name: coin_id
+        description: Canonical asset id
         tests:
           - not_null
       - name: source
+        description: Data source label
         tests:
           - not_null
+      - name: symbol
+        description: Ticker symbol
       - name: price_usd
+        description: USD price
+        tests:
+          - not_null
+      - name: market_cap
+        description: Market cap USD
+      - name: change_24h
+        description: 24h change percent
+      - name: recorded_at
+        description: Event timestamp UTC
         tests:
           - not_null

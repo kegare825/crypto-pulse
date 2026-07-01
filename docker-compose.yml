@@ -46,7 +46,8 @@ services:
 
   ingest:
     build:
-      context: ./ingest
+      context: .
+      dockerfile: ingest/Dockerfile
     container_name: crypto-pulse-ingest
     env_file:
       - .env
@@ -59,7 +60,8 @@ services:
 
   binance-ingest:
     build:
-      context: ./binance-ingest
+      context: .
+      dockerfile: binance-ingest/Dockerfile
     container_name: crypto-pulse-binance-ingest
     env_file:
       - .env

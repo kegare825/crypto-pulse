@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "collection": {
+    "name": "Crypto Pulse",
+    "description": "Business dashboards on schema gold — portfolio export."
+  },
+  "dashboard": {
+    "name": "Crypto Pulse — Freshness & SLA",
+    "description": "Data staleness per source and cross-source time alignment."
+  },
+  "cards": [
+    {
+      "name": "Freshness by source",
+      "description": "Minutes since last raw event vs 10m SLA",
+      "sql_file": "questions/08_freshness_by_source.sql",
+      "display": "table",
+      "layout": { "row": 0, "col": 0, "size_x": 24, "size_y": 8 }
+    },
+    {
+      "name": "Source timestamp gap",
+      "description": "CoinGecko vs Binance latest tick time difference per coin",
+      "sql_file": "questions/09_freshness_source_gap.sql",
+      "display": "table",
+      "layout": { "row": 8, "col": 0, "size_x": 24, "size_y": 6 }
+    }
+  ]
+}
