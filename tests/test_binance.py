@@ -5,7 +5,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "binance-ingest"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "binance-ingest"))
+sys.path.insert(0, str(ROOT / "contracts"))
 
 import trade_normalize as bn
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ingest"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "ingest"))
+sys.path.insert(0, str(ROOT / "contracts"))
 
 from coingecko_normalize import COIN_SYMBOLS, normalize_events
 

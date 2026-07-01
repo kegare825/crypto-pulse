@@ -17,6 +17,56 @@ Binance (WS)     ──→ binance.trades.raw  ──┘         ↓
                          Metabase (BI)  |  Grafana + Prometheus (ops)
 ```
 
+### Lineage (Raw → Silver → Gold)
+
+```mermaid
+flowchart LR
+  subgraph ingest [Ingest]
+    CG[CoinGecko REST]
+    BN[Binance WS]
+  end
+  subgraph stream [Streaming]
+    K1[coingecko.prices.raw]
+    K2[binance.trades.raw]
+    FL[Flink SQL]
+  end
+  subgraph raw [raw]
+    R[(raw.crypto_prices)]
+  end
+  subgraph silver [silver]
+    STG[stg_crypto_prices]
+    CLN[crypto_prices_clean]
+  end
+  subgraph gold [gold]
+    L[mart_latest_prices_by_source]
+    C[mart_source_price_comparison]
+    D[mart_daily_prices]
+  end
+  CG --> K1 --> FL
+  BN --> K2 --> FL
+  FL --> R --> STG --> CLN --> L
+  CLN --> C
+  CLN --> D
+```
+
+## Documentación de datos
+
+| Recurso | Descripción |
+|---------|-------------|
+| [dbt docs](#documentación-de-datos) | Lineage + diccionario de columnas (`dbt docs generate`) |
+| [`dbt/models/*/schema.yml`](dbt/models/gold/schema.yml) | Descripciones y tests por modelo |
+| [`contracts/crypto_price_event.schema.json`](contracts/crypto_price_event.schema.json) | Contrato JSON Kafka (validado en CI **y** runtime) |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Decisiones de diseño |
+
+Generar documentación dbt localmente:
+
+```bash
+bash scripts/generate_dbt_docs.sh
+cd dbt && dbt docs serve --profiles-dir .
+```
+
+En CI, el artefacto **dbt-docs** se sube en cada run (GitHub Actions → workflow **CI** → job **dbt docs generate**).
+
 ## Observabilidad y BI
 
 | Herramienta | URL | Rol |
@@ -29,19 +79,25 @@ Binance (WS)     ──→ binance.trades.raw  ──┘         ↓
 
 ### Metabase
 
-**Dashboard exportado** en [`metabase/`](metabase/) — import en un comando:
+Importa **3 dashboards** (Prices, Data Quality, Freshness & SLA):
 
 ```bash
 # 1. Conecta PostgreSQL en Metabase (primera vez): host postgres, DB cryptopulse, schema gold
-# 2. Importa dashboard:
+# 2. Importa todos los dashboards:
 METABASE_EMAIL=tu@email.com \
 METABASE_PASSWORD=tu_password \
 python3 metabase/setup_dashboard.py
 ```
 
-Abre la URL que imprime el script (p. ej. `http://localhost:3000/dashboard/...`).
+Abre las URLs que imprime el script.
 
-Dashboard **Crypto Pulse — Prices**: spread multi-fuente, precios latest, evolución diaria. Detalle en [`metabase/README.md`](metabase/README.md).
+| Dashboard | Contenido |
+|-----------|-----------|
+| **Crypto Pulse — Prices** | Spread multi-fuente, latest, daily |
+| **Crypto Pulse — Data Quality** | Volúmenes por zona, null checks |
+| **Crypto Pulse — Freshness & SLA** | Staleness por fuente, gap CoinGecko/Binance |
+
+Detalle en [`metabase/README.md`](metabase/README.md).
 
 #### Metabase (primera vez — conexión DB)
 
@@ -94,18 +150,23 @@ Ver alertas: http://localhost:9090/alerts
 
 Cada push/PR ejecuta (`.github/workflows/ci.yml`):
 
-```bash
-pytest tests/ -v
-dbt parse && dbt compile
-docker compose config --quiet
-promtool check rules observability/prometheus/alerts.yml
-```
+| Job | Qué valida |
+|-----|------------|
+| **test** | pytest (normalización, contrato JSON, runtime validator) |
+| **dbt** | `dbt parse` + `dbt compile` |
+| **dbt-integration** | Postgres efímero → `dbt run` + `dbt test` |
+| **dbt-docs** | `dbt docs generate` (artefacto descargable) |
+| **infra** | `docker compose config` + `promtool check rules` |
 
 Local:
 
 ```bash
 pip install -r requirements-dev.txt
 pytest tests/ -v
+
+# dbt integration (Postgres en localhost:5432)
+bash ci/init_postgres.sh
+cd dbt && dbt deps --profiles-dir . && dbt run --profiles-dir . && dbt test --profiles-dir .
 ```
 
 ### Publicar en GitHub (primera vez)
@@ -219,6 +280,8 @@ Validaciones en `quality/validate.py` (ejecutadas por `transform`):
 | Unicidad `(coin_id, source, recorded_at)` | raw, silver |
 | `source` in (coingecko, binance) | raw, silver |
 | Freshness < 10 min | raw |
+| Volumen mínimo por `source` (`GE_MIN_ROWS_PER_SOURCE`) | raw |
+| Cobertura 3 coins por `source` (`GE_MIN_COINS_PER_SOURCE`) | raw |
 | 1 fila por coin en `mart_latest_prices` | gold |
 | Filas en `mart_source_price_comparison` | gold |
 
@@ -286,6 +349,8 @@ docker compose up --build flink-submitter
 | `BINANCE_THROTTLE_SECONDS` | `1` | Mín. segundos entre publicaciones por símbolo |
 | `TRANSFORM_INTERVAL_SECONDS` | `300` | Intervalo dbt + GX |
 | `GE_FRESHNESS_MINUTES` | `10` | Máx. antigüedad datos raw |
+| `GE_MIN_ROWS_PER_SOURCE` | `1` | Mín. filas por fuente (24h) en GX |
+| `GE_MIN_COINS_PER_SOURCE` | `3` | Coins requeridos por fuente en GX |
 | `GRAFANA_ADMIN_PASSWORD` | `admin` | Password admin Grafana |
 | `METABASE_URL` | `http://localhost:3000` | URL Metabase (import dashboard) |
 | `METABASE_EMAIL` | — | Email admin Metabase (`setup_dashboard.py`) |

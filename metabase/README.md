@@ -18,6 +18,28 @@ Dashboard versionado para el portfolio: preguntas SQL sobre schema **`gold`** + 
 4. **Daily average price by source** — línea temporal  
 5. **Spread % by coin** — barras  
 
+## Dashboard: **Crypto Pulse — Data Quality**
+
+1. **Volume by zone and source** — conteos raw/silver/gold  
+2. **Gold null and sanity checks** — precios nulos o ≤ 0  
+
+## Dashboard: **Crypto Pulse — Freshness & SLA**
+
+1. **Freshness by source** — minutos desde último evento (SLA 10 min)  
+2. **Source timestamp gap** — diferencia temporal CoinGecko vs Binance por coin  
+
+Manifests en `exports/`:
+
+- `crypto-pulse-prices-dashboard.json`
+- `crypto-pulse-quality-dashboard.json`
+- `crypto-pulse-freshness-dashboard.json`
+
+El script importa **todos** los `*-dashboard.json` por defecto. Un solo manifest:
+
+```bash
+METABASE_MANIFEST=exports/crypto-pulse-quality-dashboard.json python3 metabase/setup_dashboard.py
+```
+
 ## Prerrequisitos
 
 1. Stack arriba con datos en gold (`docker compose up`, esperar transform/dbt).

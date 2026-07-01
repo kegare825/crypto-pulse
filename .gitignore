@@ -9,4 +9,4 @@ ingest/.venv/
 *.egg-info/
 dbt/target/
 dbt/dbt_packages/
-dbt/logs/
+docs/dbt/

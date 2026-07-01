@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent
-MANIFEST = ROOT / "exports" / "crypto-pulse-dashboard.json"
+EXPORTS_DIR = ROOT / "exports"
+DEFAULT_MANIFEST = EXPORTS_DIR / "crypto-pulse-prices-dashboard.json"
 
 
 class MetabaseClient:
@@ -207,6 +208,37 @@ def ensure_dashboard(
     return dashboard_id
 
 
+def list_manifests() -> list[Path]:
+    override = os.environ.get("METABASE_MANIFEST")
+    if override:
+        path = Path(override)
+        if not path.is_absolute():
+            path = ROOT / path
+        return [path]
+
+    manifests = sorted(EXPORTS_DIR.glob("*-dashboard.json"))
+    if not manifests:
+        raise FileNotFoundError(f"No manifests in {EXPORTS_DIR}")
+    return manifests
+
+
+def apply_manifest(
+    client: MetabaseClient,
+    database_id: int,
+    collection_id: int,
+    manifest_path: Path,
+) -> int:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    print(f"\n--- Manifest: {manifest_path.name} ---")
+
+    card_ids: list[tuple[int, dict[str, Any]]] = []
+    for card_spec in manifest["cards"]:
+        card_id = ensure_card(client, database_id, collection_id, card_spec)
+        card_ids.append((card_id, card_spec))
+
+    return ensure_dashboard(client, collection_id, manifest, card_ids)
+
+
 def main() -> int:
     base_url = os.environ.get("METABASE_URL", "http://localhost:3000")
     email = os.environ.get("METABASE_EMAIL")
@@ -222,22 +254,24 @@ def main() -> int:
         )
         return 1
 
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    print(f"Using manifest: {MANIFEST}")
+    manifest_paths = list_manifests()
+    print(f"Found {len(manifest_paths)} dashboard manifest(s)")
 
     client = login(base_url, email, password)
     database_id = find_database_id(client)
     print(f"Using database id={database_id}")
 
-    collection_id = ensure_collection(client, manifest)
+    first = json.loads(manifest_paths[0].read_text(encoding="utf-8"))
+    collection_id = ensure_collection(client, first)
 
-    card_ids: list[tuple[int, dict[str, Any]]] = []
-    for card_spec in manifest["cards"]:
-        card_id = ensure_card(client, database_id, collection_id, card_spec)
-        card_ids.append((card_id, card_spec))
+    dashboard_urls: list[str] = []
+    for manifest_path in manifest_paths:
+        dashboard_id = apply_manifest(client, database_id, collection_id, manifest_path)
+        dashboard_urls.append(f"{base_url}/dashboard/{dashboard_id}")
 
-    dashboard_id = ensure_dashboard(client, collection_id, manifest, card_ids)
-    print(f"\nDone. Open {base_url}/dashboard/{dashboard_id}")
+    print("\nDone. Dashboards:")
+    for url in dashboard_urls:
+        print(f"  {url}")
     return 0
 
 

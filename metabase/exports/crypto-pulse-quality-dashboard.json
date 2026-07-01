@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "collection": {
+    "name": "Crypto Pulse",
+    "description": "Business dashboards on schema gold — portfolio export."
+  },
+  "dashboard": {
+    "name": "Crypto Pulse — Data Quality",
+    "description": "Row volumes, null checks, and cross-zone counts."
+  },
+  "cards": [
+    {
+      "name": "Volume by zone and source",
+      "description": "Row counts in raw, silver, and gold (24h window for facts)",
+      "sql_file": "questions/06_data_quality_volume.sql",
+      "display": "table",
+      "layout": { "row": 0, "col": 0, "size_x": 24, "size_y": 8 }
+    },
+    {
+      "name": "Gold null and sanity checks",
+      "description": "Null or non-positive prices in gold marts",
+      "sql_file": "questions/07_data_quality_nulls.sql",
+      "display": "table",
+      "layout": { "row": 8, "col": 0, "size_x": 24, "size_y": 6 }
+    }
+  ]
+}

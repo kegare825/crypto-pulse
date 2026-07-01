@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from validate_event import validate_crypto_price_event
+
 SYMBOL_TO_COIN: dict[str, tuple[str, str]] = {
     "BTCUSDT": ("bitcoin", "btc"),
     "ETHUSDT": ("ethereum", "eth"),
@@ -46,7 +48,7 @@ def normalize_trade(trade: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     event_time = datetime.fromtimestamp(trade_time_ms / 1000, tz=timezone.utc).isoformat()
-    return {
+    event = {
         "coin_id": coin_id,
         "symbol": coin_symbol,
         "price_usd": float(trade["p"]),
@@ -55,6 +57,8 @@ def normalize_trade(trade: dict[str, Any]) -> dict[str, Any] | None:
         "event_time": event_time,
         "source": "binance",
     }
+    validate_crypto_price_event(event)
+    return event
 
 
 def should_publish(coin_id: str, throttle_seconds: float) -> bool:
