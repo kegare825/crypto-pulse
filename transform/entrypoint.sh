@@ -25,8 +25,23 @@ wait_for_postgres() {
 wait_for_postgres
 echo "PostgreSQL ready. Starting Dagster (UI on port ${DAGSTER_PORT})"
 
+mkdir -p "${DAGSTER_HOME}"
+touch "${DAGSTER_HOME}/dagster.yaml"
+dagster instance migrate
+
 dagster-daemon run -m orchestration.definitions &
 DAEMON_PID=$!
+
+# Let daemon finish schedule registration before the webserver and first launch.
+sleep 5
+
+# First dbt cycle without waiting for the cron tick; schedule auto-starts via default_status=RUNNING.
+(
+    sleep 10
+    echo "Launching initial transform_job run..."
+    dagster job launch -m orchestration.definitions -j transform_job \
+        || echo "Initial transform_job launch skipped (daemon may still be starting)" >&2
+) &
 
 dagster-webserver -h 0.0.0.0 -p "${DAGSTER_PORT}" -m orchestration.definitions &
 WEB_PID=$!

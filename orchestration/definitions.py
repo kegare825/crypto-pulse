@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from dagster import Definitions, ScheduleDefinition, job
+from dagster import DefaultScheduleStatus, Definitions, ScheduleDefinition, job
 
 from orchestration.assets import dbt_run_op, dbt_test_op, great_expectations_op
 
@@ -30,6 +30,7 @@ transform_schedule = ScheduleDefinition(
     job=transform_job,
     cron_schedule=_cron_from_interval_seconds(),
     execution_timezone="UTC",
+    default_status=DefaultScheduleStatus.RUNNING,
 )
 
 defs = Definitions(
