@@ -1,23 +1,35 @@
 # Crypto Pulse
 
-Data platform de criptomonedas con zonas **raw → silver → gold**.
+**Real-time crypto data platform** — CoinGecko + Binance → Kafka → Flink → lake + warehouse → dbt gold → BI & ops.
+
+Medallion zones **raw → silver → gold**, contract-validated ingest, CI-tested transforms, and split storage (MinIO) vs serving (PostgreSQL).
 
 [![CI](https://github.com/kegare825/crypto-pulse/actions/workflows/ci.yml/badge.svg)](https://github.com/kegare825/crypto-pulse/actions/workflows/ci.yml)
 
-> **Portfolio project** — not financial advice. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design decisions and known limitations.
+> **Portfolio project** — not financial advice. Design decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [ADRs](docs/adr/README.md) · [SLA](docs/SLA.md)
+
+## What this demonstrates
+
+- **Streaming ingest** — multi-source Kafka, Flink SQL dual sink (Postgres + Parquet lake)
+- **Lakehouse-lite** — MinIO S3-compatible storage decoupled from PostgreSQL serving layer
+- **Data quality** — JSON Schema at the edge, dbt tests, Great Expectations, freshness SLAs
+- **Platform ops** — Dagster orchestration, Prometheus/Grafana, CI + nightly smoke E2E
+
+## Architecture (high level)
 
 ```
 CoinGecko (REST) ──→ coingecko.prices.raw ──┐
-                                            ├──→ Kafka → Flink SQL → raw.crypto_prices
-Binance (WS)     ──→ binance.trades.raw  ──┘         ↓
-                                                  dbt (silver → gold)
-                                                       ↓
-                                    Great Expectations (quality)
-                                                       ↓
-                         Metabase (BI)  |  Grafana + Prometheus (ops)
+                                            ├──→ Kafka → Flink SQL ──┬→ MinIO (Parquet raw)
+Binance (WS)     ──→ binance.trades.raw  ──┘                        └→ Postgres raw
+                                                                              ↓
+                                                                        dbt (silver → gold)
+                                                                              ↓
+                                                          Great Expectations + Metabase / Grafana
 ```
 
-### Lineage (Raw → Silver → Gold)
+Storage vs serving: [docs/DATA_LAKE.md](docs/DATA_LAKE.md)
+
+### Lineage (raw → silver → gold)
 
 ```mermaid
 flowchart LR
@@ -32,6 +44,7 @@ flowchart LR
   end
   subgraph raw [raw]
     R[(raw.crypto_prices)]
+    M[(MinIO Parquet)]
   end
   subgraph silver [silver]
     STG[stg_crypto_prices]
@@ -44,181 +57,43 @@ flowchart LR
   end
   CG --> K1 --> FL
   BN --> K2 --> FL
-  FL --> R --> STG --> CLN --> L
+  FL --> R
+  FL --> M
+  R --> STG --> CLN --> L
   CLN --> C
   CLN --> D
 ```
 
-## Documentación de datos
+## Screenshots
 
-| Recurso | Descripción |
-|---------|-------------|
-| [dbt docs](#documentación-de-datos) | Lineage + diccionario de columnas (`dbt docs generate`) |
-| [`dbt/models/*/schema.yml`](dbt/models/gold/schema.yml) | Descripciones y tests por modelo |
-| [`contracts/crypto_price_event.schema.json`](contracts/crypto_price_event.schema.json) | Contrato JSON Kafka (validado en CI **y** runtime) |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Decisiones de diseño |
+Add captures under [`docs/screenshots/`](docs/screenshots/) after running the stack (see that folder for filenames). Suggested demo views:
 
-Generar documentación dbt localmente:
+| File | Shows |
+|------|-------|
+| `metabase-source-comparison.png` | CoinGecko vs Binance spread table |
+| `metabase-spread-chart.png` | Spread % bar chart |
+| `grafana-pipeline-health.png` | Ops dashboard |
+| `minio-partitions.png` | Hive-style `source=/coin_id=/dt=` layout |
+| `dagster-transform-job.png` | Successful `transform_job` run |
 
-```bash
-bash scripts/generate_dbt_docs.sh
-cd dbt && dbt docs serve --profiles-dir .
-```
+## Verify in 5 minutes
 
-En CI, el artefacto **dbt-docs** se sube en cada run (GitHub Actions → workflow **CI** → job **dbt docs generate**).
-
-## Observabilidad y BI
-
-| Herramienta | URL | Rol |
-|-------------|-----|-----|
-| **Metabase** | http://localhost:3000 | Dashboards de negocio sobre schema `gold` |
-| **Dagster** | http://localhost:3002 | Orquestación dbt + GX (jobs, schedules, lineage) |
-| **Grafana** | http://localhost:3001 | Salud del pipeline (admin / ver `.env`) |
-| **Prometheus** | http://localhost:9090 | Scraping de métricas técnicas |
-| **Ingest metrics** | http://localhost:8000/metrics | Métricas producer CoinGecko |
-| **Binance metrics** | http://localhost:8001/metrics | Métricas producer Binance WS |
-
-### Metabase
-
-Importa **3 dashboards** (Prices, Data Quality, Freshness & SLA):
+After `docker compose up --build` (wait for ingest + Flink submitter + one Dagster cycle):
 
 ```bash
-# 1. Conecta PostgreSQL en Metabase (primera vez): host postgres, DB cryptopulse, schema gold
-# 2. Importa todos los dashboards:
-METABASE_EMAIL=tu@email.com \
-METABASE_PASSWORD=tu_password \
-python3 metabase/setup_dashboard.py
+# Gold — BI-ready marts
+docker exec crypto-pulse-postgres psql -U pulse -d cryptopulse -c \
+  "SELECT * FROM gold.mart_source_price_comparison;"
+
+# Raw — Flink landing in Postgres
+docker exec crypto-pulse-postgres psql -U pulse -d cryptopulse -c \
+  "SELECT coin_id, source, price_usd, recorded_at FROM raw.crypto_prices ORDER BY recorded_at DESC LIMIT 5;"
+
+# Lake — Parquet objects on MinIO
+bash scripts/verify_lake.sh
 ```
 
-Abre las URLs que imprime el script.
-
-| Dashboard | Contenido |
-|-----------|-----------|
-| **Crypto Pulse — Prices** | Spread multi-fuente, latest, daily |
-| **Crypto Pulse — Data Quality** | Volúmenes por zona, null checks |
-| **Crypto Pulse — Freshness & SLA** | Staleness por fuente, gap CoinGecko/Binance |
-
-Detalle en [`metabase/README.md`](metabase/README.md).
-
-#### Metabase (primera vez — conexión DB)
-
-1. Abre http://localhost:3000 y crea tu cuenta admin.
-2. **Add database** → PostgreSQL:
-   - Host: `postgres` (desde tu máquina usa `localhost`)
-   - Port: `5432`
-   - Database: `cryptopulse`
-   - User / Password: `pulse` / `pulse`
-3. En la conexión, limita el schema visible a **`gold`**.
-4. Ejecuta `python3 metabase/setup_dashboard.py` (ver arriba) o crea preguntas manualmente desde `metabase/questions/`.
-
-Si Metabase no arranca (DB `metabase` inexistente en volúmenes antiguos):
-
-```bash
-docker exec crypto-pulse-postgres psql -U pulse -d postgres -c \
-  "CREATE DATABASE metabase OWNER pulse;"
-docker compose up -d metabase
-```
-
-### Grafana
-
-- Login: `admin` / valor de `GRAFANA_ADMIN_PASSWORD` (default `admin`)
-- Dashboard provisionado: **Crypto Pulse — Pipeline Health**
-- Datasources: Prometheus + PostgreSQL (gold)
-
-### Prometheus scrapea
-
-- `ingest:8000` — CoinGecko: mensajes publicados, errores API, último poll
-- `binance-ingest:8001` — Binance WS: trades publicados, throttle drops, reconexiones
-- `kafka-exporter:9308` — lag, offsets
-- `postgres-exporter:9187` — stats PostgreSQL
-- `flink-jobmanager:9249` / `flink-taskmanager:9250` — métricas Flink
-
-**Alertas** (reglas en `observability/prometheus/alerts.yml`, visibles en Prometheus → Alerts):
-
-| Alerta | Condición |
-|--------|-----------|
-| `CoingeckoPollStale` | Sin poll exitoso en 5+ min |
-| `CoingeckoApiErrors` | Errores API en 15 min |
-| `BinancePublishStale` | Sin mensajes publicados en 10 min |
-| `BinanceWsErrors` | Reconexiones WS repetidas |
-| `FlinkNoRunningJobs` | Job streaming caído |
-| `KafkaConsumerLagHigh` | Lag Flink > 5000 msgs |
-| `PostgresDown` | Exporter no alcanza PG |
-
-Ver alertas: http://localhost:9090/alerts
-
-## CI
-
-Cada push/PR ejecuta (`.github/workflows/ci.yml`):
-
-| Job | Qué valida |
-|-----|------------|
-| **test** | pytest (normalización, contrato JSON, runtime validator) |
-| **dbt** | `dbt parse` + `dbt compile` |
-| **dbt-integration** | Postgres efímero → `dbt run` + `dbt test` |
-| **quality** | Postgres seed → `dbt run` → Great Expectations |
-| **dbt-docs** | `dbt docs generate` (artefacto descargable) |
-| **infra** | `docker compose config` + `promtool check rules` |
-
-Workflow **Smoke E2E** (`.github/workflows/smoke.yml`): nightly + manual — mismo camino que `scripts/smoke_test.sh`.
-
-Branch protection recomendada: [`docs/CI.md`](docs/CI.md).
-
-Local:
-
-```bash
-pip install -r requirements-dev.txt
-pytest tests/ -v
-
-# dbt integration (Postgres en localhost:5432)
-bash ci/init_postgres.sh
-cd dbt && dbt deps --profiles-dir . && dbt run --profiles-dir . && dbt test --profiles-dir .
-```
-
-### Publicar en GitHub (primera vez)
-
-1. Crea el repo vacío en https://github.com/new → nombre `crypto-pulse` (sin README).
-2. En tu máquina (el remote `origin` ya apunta a `kegare825/crypto-pulse`):
-
-```bash
-git push -u origin main
-```
-
-GitHub **no acepta contraseña** en `git push`. Usa un [Personal Access Token](https://github.com/settings/tokens) (scope `repo`) como contraseña, o configura [SSH](https://docs.github.com/en/authentication/connecting-to-github-with-ssh).
-
-3. Tras el push, abre **Actions** y confirma que el workflow **CI** pasa en verde. El badge del README se activará solo.
-
-## Contrato de eventos
-
-Schema compartido: [`contracts/crypto_price_event.schema.json`](contracts/crypto_price_event.schema.json) — validado en CI contra eventos de CoinGecko y Binance.
-
-## Próximos pasos
-
-- **Fase C** — MinIO data lake + particionado (ver roadmap en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md))
-- Terraform para cloud
-- Alertmanager → Slack/email (opcional)
-- _(Opcional)_ MinIO/S3 como data lake decoupled (Opción B)
-
-## Arquitectura de zonas
-
-| Zona | Ubicación | Responsable | Contenido |
-|------|-----------|-------------|-----------|
-| **raw** | Kafka + `raw.crypto_prices` | Flink | Eventos crudos de CoinGecko y Binance (`source`) |
-| **silver** | `silver.*` | dbt | Limpieza, deduplicación, tipos consistentes |
-| **gold** | `gold.*` | dbt | Marts analíticos para BI |
-
-### Modelos gold
-
-| Modelo | Descripción |
-|--------|-------------|
-| `mart_latest_prices` | Último precio por coin (solo CoinGecko, compat BI) |
-| `mart_latest_prices_by_source` | Último precio por coin y fuente |
-| `mart_source_price_comparison` | Spread CoinGecko vs Binance por coin |
-| `mart_daily_prices` | Agregados diarios por coin y fuente |
-| `mart_zone_volume` | Conteos por zona/fuente (dashboard Quality) |
-| `mart_freshness_by_source` | Staleness y SLA por fuente (dashboard Freshness) |
-| `mart_gold_sanity` | Null checks en marts gold |
-| `fct_price_changes` | Cambio punto a punto entre ticks (por fuente) |
+More checks: [Verify the pipeline](#verify-the-pipeline) below.
 
 ## Quick start
 
@@ -227,102 +102,271 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Servicios:
-
-| Servicio | Puerto | Rol |
-|----------|--------|-----|
-| `kafka` | 9092 | Bus de eventos (raw stream) |
-| `postgres` | 5432 | Warehouse (raw/silver/gold) |
+| Service | Port | Role |
+|---------|------|------|
+| `kafka` | 9092 | Event bus |
+| `postgres` | 5432 | Serving layer (raw / silver / gold) |
+| `minio` | 9000 / 9001 | Storage layer (Parquet raw, S3 console) |
 | `ingest` | 8000 | CoinGecko → `coingecko.prices.raw` |
-| `binance-ingest` | 8001 | Binance WS → `binance.trades.raw` (throttle ~1 msg/s/símbolo) |
-| `flink-*` | 8081 | Kafka → `raw.crypto_prices` |
-| `transform` | — | Dagster schedule → dbt run/test + Great Expectations |
-| `prometheus` | 9090 | Métricas técnicas |
-| `grafana` | 3001 | Dashboards ops |
-| `metabase` | 3000 | BI sobre schema `gold` |
+| `binance-ingest` | 8001 | Binance WS → `binance.trades.raw` (~1 msg/s per symbol) |
+| `flink-*` | 8081 | Kafka → Postgres + MinIO (dual sink) |
+| `flink-watchdog` | — | Resubmits Flink job if none running |
+| `transform` | 3002 | Dagster → dbt + Great Expectations |
+| `metabase` | 3000 | BI on schema `gold` |
+| `grafana` | 3001 | Pipeline health |
+| `prometheus` | 9090 | Metrics |
 
-## Verificar el pipeline
+## Fault tolerance
+
+Single-node portfolio setup — not multi-broker HA, but survives common restarts. See [ADR 006](docs/adr/006-resilience-kafka-flink.md).
+
+| Layer | Mechanism |
+|-------|-----------|
+| **Kafka** | Persistent `kafka_data` volume, `restart: unless-stopped`, explicit topics (7d retention), idempotent producers (`acks=all`) |
+| **Flink** | Checkpoints every 30s (EXACTLY_ONCE), fixed-delay restart, sink retries, offset restore from checkpoints |
+| **Recovery** | `flink-watchdog` resubmits the SQL pipeline when JobManager has no active job |
+
+Quick test: `docker compose restart kafka flink-taskmanager` — ingest reconnects; Flink heals via checkpoints + watchdog.
+
+## Documentation
+
+| Resource | Description |
+|----------|-------------|
+| [dbt docs](#dbt) | Column lineage (`dbt docs generate`; artifact in CI) |
+| [`dbt/models/*/schema.yml`](dbt/models/gold/schema.yml) | Model descriptions and tests |
+| [`contracts/crypto_price_event.schema.json`](contracts/crypto_price_event.schema.json) | Kafka event contract (CI **and** runtime) |
+| [docs/DATA_LAKE.md](docs/DATA_LAKE.md) | MinIO layout, Iceberg roadmap |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Design decisions and known limits |
+| [docs/adr/](docs/adr/README.md) | Architecture Decision Records |
+| [docs/SLA.md](docs/SLA.md) | Freshness and quality policy |
+
+Generate dbt docs locally:
 
 ```bash
-# Raw (Flink landing)
+bash scripts/generate_dbt_docs.sh
+cd dbt && dbt docs serve --profiles-dir .
+```
+
+## Observability & BI
+
+| Tool | URL | Role |
+|------|-----|------|
+| **MinIO Console** | http://localhost:9001 | Data lake UI |
+| **Metabase** | http://localhost:3000 | Business dashboards (`gold`) |
+| **Dagster** | http://localhost:3002 | Transform orchestration |
+| **Grafana** | http://localhost:3001 | Pipeline health (`admin` / see `.env`) |
+| **Prometheus** | http://localhost:9090 | Metrics scrape |
+| **Ingest metrics** | http://localhost:8000/metrics | CoinGecko producer |
+| **Binance metrics** | http://localhost:8001/metrics | Binance WS producer |
+
+### Metabase
+
+Import **3 dashboards** (Prices, Data Quality, Freshness & SLA):
+
+```bash
+# 1. Connect PostgreSQL in Metabase: host postgres, DB cryptopulse, schema gold
+# 2. Import all dashboards:
+METABASE_EMAIL=you@example.com \
+METABASE_PASSWORD=your_password \
+python3 metabase/setup_dashboard.py
+```
+
+| Dashboard | Content |
+|-----------|---------|
+| **Crypto Pulse — Prices** | Multi-source spread, latest, daily |
+| **Crypto Pulse — Data Quality** | Zone volumes, null checks |
+| **Crypto Pulse — Freshness & SLA** | Staleness per source, source time gap |
+
+Details: [metabase/README.md](metabase/README.md).
+
+**First-time DB connection:** host `postgres` (or `localhost` from host), port `5432`, database `cryptopulse`, user/password `pulse` / `pulse`, visible schema **`gold`** only.
+
+If Metabase fails on old volumes (missing `metabase` DB):
+
+```bash
+docker exec crypto-pulse-postgres psql -U pulse -d postgres -c \
+  "CREATE DATABASE metabase OWNER pulse;"
+docker compose up -d metabase
+```
+
+### Grafana & Prometheus
+
+- Dashboard: **Crypto Pulse — Pipeline Health** (provisioned)
+- Alerts in `observability/prometheus/alerts.yml` (validated in CI with `promtool`)
+
+| Alert | Condition |
+|-------|-----------|
+| `CoingeckoPollStale` | No successful poll in 5+ min |
+| `BinancePublishStale` | No messages published in 10+ min |
+| `FlinkNoRunningJobs` | Streaming job down |
+| `KafkaConsumerLagHigh` | Flink lag > 5000 messages |
+
+View: http://localhost:9090/alerts
+
+## CI
+
+Every push/PR runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+| Job | Validates |
+|-----|-----------|
+| **test** | pytest, JSON contract, runtime validator |
+| **dbt** | `dbt parse` + `dbt compile` |
+| **dbt-integration** | Ephemeral Postgres → `dbt run` + `dbt test` |
+| **quality** | Seed → `dbt run` → Great Expectations |
+| **dbt-docs** | `dbt docs generate` (downloadable artifact) |
+| **infra** | `docker compose config` + `promtool check rules` |
+
+Nightly smoke: [`.github/workflows/smoke.yml`](.github/workflows/smoke.yml) — same path as `scripts/smoke_test.sh`.
+
+Branch protection: [docs/CI.md](docs/CI.md).
+
+**Local parity:**
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+bash ci/init_postgres.sh
+cd dbt && dbt deps --profiles-dir . && dbt run --profiles-dir . && dbt test --profiles-dir .
+```
+
+## Event contract
+
+Shared schema: [`contracts/crypto_price_event.schema.json`](contracts/crypto_price_event.schema.json) — validated in CI and at ingest before Kafka. Rationale: [ADR 003](docs/adr/003-contract-before-kafka.md).
+
+## Zone model
+
+| Zone | Location | Owner | Purpose |
+|------|----------|-------|---------|
+| **raw** | Kafka + MinIO (Parquet) + `raw.crypto_prices` | Flink | Immutable landing; lake = archive, Postgres = dbt input |
+| **silver** | `silver.*` | dbt | Clean types, dedupe, incremental hygiene |
+| **gold** | `gold.*` | dbt | BI marts (serving layer) |
+
+### Gold models
+
+| Model | Description |
+|-------|-------------|
+| `mart_latest_prices` | Latest price per coin (CoinGecko only, legacy BI) |
+| `mart_latest_prices_by_source` | Latest price per coin and source |
+| `mart_source_price_comparison` | CoinGecko vs Binance spread |
+| `mart_daily_prices` | Daily aggregates by coin and source |
+| `mart_zone_volume` | Row counts by zone/source (Quality dashboard) |
+| `mart_freshness_by_source` | Staleness and SLA per source |
+| `mart_gold_sanity` | Null checks on gold marts |
+| `fct_price_changes` | Point-to-point tick changes |
+
+## Verify the pipeline
+
+```bash
+# Raw (Postgres landing)
 docker exec crypto-pulse-postgres psql -U pulse -d cryptopulse -c \
   "SELECT coin_id, price_usd, recorded_at FROM raw.crypto_prices ORDER BY recorded_at DESC LIMIT 5;"
 
-# Silver (dbt cleaned)
+# Silver
 docker exec crypto-pulse-postgres psql -U pulse -d cryptopulse -c \
   "SELECT coin_id, price_usd, recorded_at FROM silver.crypto_prices_clean ORDER BY recorded_at DESC LIMIT 5;"
 
-# Gold (BI-ready)
+# Gold
 docker exec crypto-pulse-postgres psql -U pulse -d cryptopulse -c \
   "SELECT * FROM gold.mart_latest_prices;"
 
-# Comparación por fuente
+# Multi-source comparison
 docker exec crypto-pulse-postgres psql -U pulse -d cryptopulse -c \
   "SELECT * FROM gold.mart_source_price_comparison;"
 
-# Logs de transformación + calidad
+# Transform + quality logs
 docker logs -f crypto-pulse-transform
+
+# Data lake (MinIO Parquet)
+bash scripts/verify_lake.sh
 ```
 
-## Orquestación (Dagster)
+## Orchestration (Dagster)
 
-El servicio `transform` ejecuta un **schedule Dagster** (`transform_job`): `dbt run` → `dbt test` → Great Expectations.
-- Intervalo: `TRANSFORM_INTERVAL_SECONDS` (default 300s)
-- Ciclo manual (sin esperar al schedule):
+Service `transform` runs scheduled job `transform_job`: `dbt run` → `dbt test` → Great Expectations.
+
+- UI: http://localhost:3002
+- Interval: `TRANSFORM_INTERVAL_SECONDS` (default 300s)
+- Schedule **`transform_schedule`** starts automatically (`RUNNING`); first run kicks off ~15s after container start
+- **Jobs** (not Assets): open **Jobs** → `transform_job`, or **Overview** → **Runs** for history. The Assets tab is empty by design (ops-based job, not Software-Defined Assets).
+- Manual run:
 
 ```bash
 docker compose run --rm transform /app/run-transform.sh
 ```
 
-Código en [`orchestration/`](orchestration/).
+Code: [`orchestration/`](orchestration/).
 
-## dbt (manual)
+## dbt
 
 ```bash
 docker compose run --rm transform dbt run --profiles-dir /app/dbt
 docker compose run --rm transform dbt test --profiles-dir /app/dbt
 ```
 
-Proyecto en `dbt/`:
-
-- `models/silver/` — staging + tabla limpia incremental
-- `models/gold/` — marts para dashboards
+- `models/silver/` — staging + incremental clean table
+- `models/gold/` — BI marts
 - Tests: `not_null`, `unique`, `accepted_values`, `dbt_utils.unique_combination_of_columns`
 
 ## Great Expectations
 
-Validaciones en `quality/validate.py` (ejecutadas por `transform`):
+Runtime checks in `quality/validate.py` (via Dagster):
 
-| Check | Zona |
+| Check | Zone |
 |-------|------|
 | Row count > 0 | raw, silver, gold |
-| `coin_id`, `price_usd`, `recorded_at` not null | todas |
-| `coin_id` in (bitcoin, ethereum, solana) | todas |
-| `price_usd` > 0 | todas |
-| Unicidad `(coin_id, source, recorded_at)` | raw, silver |
+| `coin_id`, `price_usd`, `recorded_at` not null | all |
+| `coin_id` in (bitcoin, ethereum, solana) | all |
+| `price_usd` > 0 | all |
+| Uniqueness `(coin_id, source, recorded_at)` | raw, silver |
 | `source` in (coingecko, binance) | raw, silver |
 | Freshness < 10 min | raw |
-| Volumen mínimo por `source` (`GE_MIN_ROWS_PER_SOURCE`) | raw |
-| Cobertura 3 coins por `source` (`GE_MIN_COINS_PER_SOURCE`) | raw |
-| 1 fila por coin en `mart_latest_prices` | gold |
-| Filas en `mart_source_price_comparison` | gold |
+| Min rows per source (`GE_MIN_ROWS_PER_SOURCE`) | raw |
+| 3 coins per source (`GE_MIN_COINS_PER_SOURCE`) | raw |
+| One row per coin in `mart_latest_prices` | gold |
+| Rows in `mart_source_price_comparison` | gold |
 
-Ejecutar solo calidad:
+Run quality only:
 
 ```bash
 docker compose run --rm transform python /app/validate.py
 ```
 
-## Migración desde versión anterior
+Policy details: [docs/SLA.md](docs/SLA.md).
 
-Si ya tenías `public.crypto_prices`:
+## Step-by-step
+
+### 1. Kafka ingest
+
+```bash
+docker compose logs -f ingest          # CoinGecko
+docker compose logs -f binance-ingest  # Binance WS
+docker compose run --rm --no-deps ingest python -u consumer.py  # read CoinGecko topic
+```
+
+### 2. Flink → Postgres + MinIO
+
+Dual-write to `raw.crypto_prices` and `s3://crypto-pulse/raw/crypto_prices/`. Flink UI: http://localhost:8081
+
+Resubmit job:
+
+```bash
+docker compose up --build flink-submitter
+```
+
+### 3. Observability
+
+See [Observability & BI](#observability--bi) above.
+
+## Migrations
+
+**From legacy `public.crypto_prices`:**
 
 ```bash
 docker exec -i crypto-pulse-postgres psql -U pulse -d cryptopulse < postgres/migrate-to-zones.sql
 docker compose up --build flink-submitter transform
 ```
 
-Si ya tenías zonas raw/silver/gold **sin** columna `source`:
+**Zones without `source` column:**
 
 ```bash
 docker exec -i crypto-pulse-postgres psql -U pulse -d cryptopulse < postgres/migrate-add-source.sql
@@ -330,54 +374,40 @@ docker compose up --build flink-submitter
 docker compose run --rm transform bash -c "dbt deps --profiles-dir /app/dbt && dbt run --full-refresh --profiles-dir /app/dbt"
 ```
 
-## Paso 1: Kafka (ingesta)
+## Environment variables
 
-CoinGecko:
-
-```bash
-docker compose logs -f ingest
-```
-
-Binance (WebSocket, throttle configurable):
-
-```bash
-docker compose logs -f binance-ingest
-```
-
-Leer stream CoinGecko:
-
-```bash
-docker compose run --rm --no-deps ingest python -u consumer.py
-```
-
-## Paso 2: Flink → raw
-
-Flink escribe en `raw.crypto_prices`. UI: http://localhost:8081
-
-Relanzar job Flink:
-
-```bash
-docker compose up --build flink-submitter
-```
-
-## Variables de entorno
-
-| Variable | Default | Descripción |
+| Variable | Default | Description |
 |----------|---------|-------------|
-| `COINGECKO_COIN_IDS` | `bitcoin,ethereum,solana` | Coins a trackear |
-| `POLL_INTERVAL_SECONDS` | `60` | Intervalo ingesta CoinGecko |
-| `BINANCE_KAFKA_TOPIC` | `binance.trades.raw` | Topic Kafka Binance |
-| `BINANCE_STREAMS` | `btcusdt@trade,...` | Streams WS Binance |
-| `BINANCE_THROTTLE_SECONDS` | `1` | Mín. segundos entre publicaciones por símbolo |
-| `TRANSFORM_INTERVAL_SECONDS` | `300` | Intervalo dbt + GX |
-| `GE_FRESHNESS_MINUTES` | `10` | Máx. antigüedad datos raw |
-| `GE_MIN_ROWS_PER_SOURCE` | `1` | Mín. filas por fuente (24h) en GX |
-| `GE_MIN_COINS_PER_SOURCE` | `3` | Coins requeridos por fuente en GX |
-| `GRAFANA_ADMIN_PASSWORD` | `admin` | Password admin Grafana |
-| `METABASE_URL` | `http://localhost:3000` | URL Metabase (import dashboard) |
-| `METABASE_EMAIL` | — | Email admin Metabase (`setup_dashboard.py`) |
-| `METABASE_PASSWORD` | — | Password admin Metabase |
+| `COINGECKO_COIN_IDS` | `bitcoin,ethereum,solana` | Tracked coins |
+| `POLL_INTERVAL_SECONDS` | `60` | CoinGecko poll interval |
+| `BINANCE_KAFKA_TOPIC` | `binance.trades.raw` | Binance Kafka topic |
+| `BINANCE_THROTTLE_SECONDS` | `1` | Min seconds between publishes per symbol |
+| `TRANSFORM_INTERVAL_SECONDS` | `300` | Dagster schedule interval |
+| `GE_FRESHNESS_MINUTES` | `10` | Max raw data age |
+| `GE_MIN_ROWS_PER_SOURCE` | `1` | Min rows per source (24h) |
+| `GE_MIN_COINS_PER_SOURCE` | `3` | Required coins per source |
+| `MINIO_ROOT_USER` | `minioadmin` | MinIO user |
+| `MINIO_ROOT_PASSWORD` | `minioadmin` | MinIO password |
+| `MINIO_BUCKET` | `crypto-pulse` | Lake bucket |
+| `LAKE_RAW_PREFIX` | `raw/crypto_prices` | Parquet prefix |
+| `KAFKA_LOG_RETENTION_HOURS` | `168` | Broker default retention (hours) |
+| `KAFKA_TOPIC_RETENTION_MS` | `604800000` | Topic retention (7 days) |
+| `FLINK_WATCHDOG_INTERVAL_SECONDS` | `60` | Job resubmit check interval |
+| `GRAFANA_ADMIN_PASSWORD` | `admin` | Grafana admin password |
+| `METABASE_URL` | `http://localhost:3000` | Metabase URL for import script |
+| `METABASE_EMAIL` | — | Metabase admin email |
+| `METABASE_PASSWORD` | — | Metabase admin password |
 
-## Paso 3: Observabilidad
+## Roadmap
 
-Ver sección **Observabilidad y BI** arriba.
+| Phase | Focus |
+|-------|--------|
+| **C3** | Iceberg on MinIO + dbt external tables — [ADR 005](docs/adr/005-iceberg-roadmap.md) |
+| **D** | Terraform (S3 / RDS / IAM) |
+| Optional | Alertmanager → Slack/email, DLQ topic for invalid JSON |
+
+## Publishing to GitHub
+
+1. Create an empty repo at https://github.com/new named `crypto-pulse`.
+2. Push: `git push -u origin main` (use a [PAT](https://github.com/settings/tokens) or [SSH](https://docs.github.com/en/authentication/connecting-to-github-with-ssh) — password auth is disabled).
+3. Confirm **Actions** CI is green; the badge above will reflect status.

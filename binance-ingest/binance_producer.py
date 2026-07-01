@@ -26,6 +26,7 @@ from trade_normalize import (
     should_publish,
     unwrap_trade_message,
 )
+from kafka_producer import build_producer_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -122,7 +123,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, shutdown_handler)
 
     config = load_config()
-    producer = Producer({"bootstrap.servers": str(config["bootstrap_servers"])})
+    producer = Producer(build_producer_config())
     start_metrics_server()
 
     log.info(
