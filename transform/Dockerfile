@@ -10,11 +10,17 @@ COPY transform/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY dbt/ /app/dbt/
+COPY orchestration/ /app/orchestration/
 COPY quality/validate.py /app/validate.py
+COPY transform/entrypoint.sh /app/entrypoint.sh
 COPY transform/run-transform.sh /app/run-transform.sh
-RUN chmod +x /app/run-transform.sh
+RUN chmod +x /app/entrypoint.sh /app/run-transform.sh
 
 ENV DBT_PROFILES_DIR=/app/dbt
+ENV DAGSTER_HOME=/tmp/dagster
+ENV PYTHONPATH=/app
 WORKDIR /app/dbt
 
-CMD ["/app/run-transform.sh"]
+EXPOSE 3002
+
+CMD ["/app/entrypoint.sh"]
