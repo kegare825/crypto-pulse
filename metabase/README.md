@@ -48,7 +48,7 @@ METABASE_MANIFEST=exports/crypto-pulse-quality-dashboard.json python3 metabase/s
    - Host: `postgres` (desde Docker) o `localhost`
    - Database: `cryptopulse`
    - User / password: `pulse` / `pulse`
-   - Schema visible: **`gold`** solamente
+   - Schema visible: **`gold`** (todos los dashboards usan solo `gold.*`)
 
 ## Import automático (recomendado)
 

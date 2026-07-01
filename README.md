@@ -72,6 +72,7 @@ En CI, el artefacto **dbt-docs** se sube en cada run (GitHub Actions → workflo
 | Herramienta | URL | Rol |
 |-------------|-----|-----|
 | **Metabase** | http://localhost:3000 | Dashboards de negocio sobre schema `gold` |
+| **Dagster** | http://localhost:3002 | Orquestación dbt + GX (jobs, schedules, lineage) |
 | **Grafana** | http://localhost:3001 | Salud del pipeline (admin / ver `.env`) |
 | **Prometheus** | http://localhost:9090 | Scraping de métricas técnicas |
 | **Ingest metrics** | http://localhost:8000/metrics | Métricas producer CoinGecko |
@@ -155,8 +156,13 @@ Cada push/PR ejecuta (`.github/workflows/ci.yml`):
 | **test** | pytest (normalización, contrato JSON, runtime validator) |
 | **dbt** | `dbt parse` + `dbt compile` |
 | **dbt-integration** | Postgres efímero → `dbt run` + `dbt test` |
+| **quality** | Postgres seed → `dbt run` → Great Expectations |
 | **dbt-docs** | `dbt docs generate` (artefacto descargable) |
 | **infra** | `docker compose config` + `promtool check rules` |
+
+Workflow **Smoke E2E** (`.github/workflows/smoke.yml`): nightly + manual — mismo camino que `scripts/smoke_test.sh`.
+
+Branch protection recomendada: [`docs/CI.md`](docs/CI.md).
 
 Local:
 
@@ -188,6 +194,7 @@ Schema compartido: [`contracts/crypto_price_event.schema.json`](contracts/crypto
 
 ## Próximos pasos
 
+- **Fase C** — MinIO data lake + particionado (ver roadmap en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md))
 - Terraform para cloud
 - Alertmanager → Slack/email (opcional)
 - _(Opcional)_ MinIO/S3 como data lake decoupled (Opción B)
@@ -208,6 +215,9 @@ Schema compartido: [`contracts/crypto_price_event.schema.json`](contracts/crypto
 | `mart_latest_prices_by_source` | Último precio por coin y fuente |
 | `mart_source_price_comparison` | Spread CoinGecko vs Binance por coin |
 | `mart_daily_prices` | Agregados diarios por coin y fuente |
+| `mart_zone_volume` | Conteos por zona/fuente (dashboard Quality) |
+| `mart_freshness_by_source` | Staleness y SLA por fuente (dashboard Freshness) |
+| `mart_gold_sanity` | Null checks en marts gold |
 | `fct_price_changes` | Cambio punto a punto entre ticks (por fuente) |
 
 ## Quick start
@@ -226,7 +236,7 @@ Servicios:
 | `ingest` | 8000 | CoinGecko → `coingecko.prices.raw` |
 | `binance-ingest` | 8001 | Binance WS → `binance.trades.raw` (throttle ~1 msg/s/símbolo) |
 | `flink-*` | 8081 | Kafka → `raw.crypto_prices` |
-| `transform` | — | dbt run/test + Great Expectations (cada 5 min) |
+| `transform` | — | Dagster schedule → dbt run/test + Great Expectations |
 | `prometheus` | 9090 | Métricas técnicas |
 | `grafana` | 3001 | Dashboards ops |
 | `metabase` | 3000 | BI sobre schema `gold` |
@@ -253,6 +263,18 @@ docker exec crypto-pulse-postgres psql -U pulse -d cryptopulse -c \
 # Logs de transformación + calidad
 docker logs -f crypto-pulse-transform
 ```
+
+## Orquestación (Dagster)
+
+El servicio `transform` ejecuta un **schedule Dagster** (`transform_job`): `dbt run` → `dbt test` → Great Expectations.
+- Intervalo: `TRANSFORM_INTERVAL_SECONDS` (default 300s)
+- Ciclo manual (sin esperar al schedule):
+
+```bash
+docker compose run --rm transform /app/run-transform.sh
+```
+
+Código en [`orchestration/`](orchestration/).
 
 ## dbt (manual)
 

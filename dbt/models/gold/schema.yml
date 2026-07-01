@@ -114,6 +114,43 @@ models:
         tests:
           - not_null
 
+  - name: mart_zone_volume
+    description: >
+      Row counts by zone and source for data-quality dashboards (raw/silver/gold).
+    columns:
+      - name: zone
+        description: Pipeline zone label (raw, silver, gold_latest_by_source)
+      - name: source
+        description: coingecko or binance
+      - name: row_count
+        description: Number of rows in the 24h window (gold is current snapshot count)
+
+  - name: mart_gold_sanity
+    description: >
+      Null and non-positive price checks on gold marts for BI quality dashboards.
+    columns:
+      - name: mart
+        description: Gold table name
+      - name: total_rows
+        description: Total rows in the mart
+      - name: null_prices
+        description: Rows with null price fields
+      - name: non_positive_prices
+        description: Rows with price <= 0
+
+  - name: mart_freshness_by_source
+    description: >
+      Minutes since last tick per source with SLA status (OK/WARN/FAIL).
+    columns:
+      - name: source
+        description: coingecko or binance
+      - name: last_event_at
+        description: Timestamp of latest tick for this source
+      - name: minutes_stale
+        description: Minutes since last_event_at
+      - name: sla_status
+        description: OK if <= 10 min, WARN if <= 30 min, else FAIL
+
   - name: fct_price_changes
     description: >
       Point-to-point price change between consecutive ticks per coin and source.
