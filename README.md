@@ -406,8 +406,3 @@ docker compose run --rm transform bash -c "dbt deps --profiles-dir /app/dbt && d
 | **D** | Terraform (S3 / RDS / IAM) |
 | Optional | Alertmanager → Slack/email, DLQ topic for invalid JSON |
 
-## Publishing to GitHub
-
-1. Create an empty repo at https://github.com/new named `crypto-pulse`.
-2. Push: `git push -u origin main` (use a [PAT](https://github.com/settings/tokens) or [SSH](https://docs.github.com/en/authentication/connecting-to-github-with-ssh) — password auth is disabled).
-3. Confirm **Actions** CI is green; the badge above will reflect status.
