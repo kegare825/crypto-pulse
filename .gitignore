@@ -10,3 +10,14 @@ ingest/.venv/
 dbt/target/
 dbt/dbt_packages/
 docs/dbt/
+
+# Terraform (local state; lock file is committed)
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

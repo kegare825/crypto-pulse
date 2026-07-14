@@ -389,6 +389,27 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # LocalStack emulates AWS S3/IAM for terraform/ (profile: terraform). Not used by the main pipeline.
+  localstack:
+    profiles: ["terraform"]
+    image: localstack/localstack:3
+    container_name: crypto-pulse-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3,iam
+      DEFAULT_REGION: eu-west-1
+      EAGER_SERVICE_LOADING: 1
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   kafka_data:
@@ -397,3 +418,4 @@ volumes:
   prometheus_data:
   grafana_data:
   metabase_data:
+  localstack_data:

@@ -203,3 +203,34 @@ jobs:
             -v "${{ github.workspace }}/observability/prometheus:/etc/prometheus:ro" \
             prom/prometheus:v3.2.1 \
             check rules /etc/prometheus/alerts.yml
+
+  terraform:
+    name: Terraform (LocalStack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Start LocalStack
+        run: docker compose --profile terraform up -d localstack
+
+      - name: Wait for LocalStack
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4566/_localstack/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "LocalStack failed to start" >&2
+          exit 1
+
+      - name: Terraform init, validate, plan
+        working-directory: terraform
+        run: |
+          terraform init -input=false
+          terraform validate
+          terraform plan -no-color -input=false
