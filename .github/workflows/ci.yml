@@ -21,8 +21,30 @@ jobs:
       - name: Install test dependencies
         run: pip install -r requirements-dev.txt
 
-      - name: Run pytest
-        run: pytest tests/ -v
+      - name: Run pytest (unit + contract, excludes Docker-based integration)
+        run: pytest tests/ -v -m "not integration"
+
+  kafka-integration:
+    name: Kafka integration (Testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            tests/requirements-integration.txt
+
+      - name: Install test dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -r tests/requirements-integration.txt
+
+      - name: Run Kafka round-trip integration tests
+        run: pytest tests/ -v -m integration
 
   dbt:
     name: dbt parse & compile

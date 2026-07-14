@@ -10,5 +10,6 @@ Short, durable notes on **why** Crypto Pulse is built this way. Each ADR capture
 | [004](004-flink-sql.md) | Flink SQL instead of PyFlink |
 | [005](005-iceberg-roadmap.md) | Iceberg on the roadmap (not Hudi/Delta yet) |
 | [006](006-resilience-kafka-flink.md) | Kafka persistence + Flink checkpoints and watchdog |
+| [007](007-dead-letter-queue.md) | Dead-letter queue for invalid payloads |
 
 When adding a new ADR, copy the template sections from any existing file and increment the number.
