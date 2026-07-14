@@ -20,6 +20,10 @@ import uuid
 from pathlib import Path
 
 import pytest
+
+pytest.importorskip("confluent_kafka")
+pytest.importorskip("testcontainers")
+
 from confluent_kafka import Consumer, Producer
 from confluent_kafka.admin import AdminClient, NewTopic
 from testcontainers.kafka import KafkaContainer
