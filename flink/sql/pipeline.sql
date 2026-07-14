@@ -116,6 +116,82 @@ WITH (
     'sink.rolling-policy.rollover-interval' = '5 min'
 );
 
+-- Dead-letter queue: a second, independently-grouped consumer reads each raw
+-- topic as an opaque STRING (format=raw) so malformed/incomplete payloads
+-- can be inspected instead of silently vanishing behind
+-- 'json.ignore-parse-errors' = 'true' above. See ADR 007.
+CREATE TABLE kafka_coingecko_raw (
+    raw_value STRING,
+    kafka_ts  TIMESTAMP_LTZ(3) METADATA FROM 'timestamp' VIRTUAL
+) WITH (
+    'connector' = 'kafka',
+    'topic' = 'coingecko.prices.raw',
+    'properties.bootstrap.servers' = 'kafka:9093',
+    'properties.group.id' = 'flink-crypto-pulse-coingecko-dlq',
+    'scan.startup.mode' = 'group-offsets',
+    'properties.auto.offset.reset' = 'earliest',
+    'format' = 'raw'
+);
+
+CREATE TABLE kafka_binance_raw (
+    raw_value STRING,
+    kafka_ts  TIMESTAMP_LTZ(3) METADATA FROM 'timestamp' VIRTUAL
+) WITH (
+    'connector' = 'kafka',
+    'topic' = 'binance.trades.raw',
+    'properties.bootstrap.servers' = 'kafka:9093',
+    'properties.group.id' = 'flink-crypto-pulse-binance-dlq',
+    'scan.startup.mode' = 'group-offsets',
+    'properties.auto.offset.reset' = 'earliest',
+    'format' = 'raw'
+);
+
+CREATE TABLE kafka_dlq (
+    source_topic STRING,
+    raw_value    STRING,
+    reason       STRING,
+    failed_at    TIMESTAMP_LTZ(3)
+) WITH (
+    'connector' = 'kafka',
+    'topic' = 'crypto-pulse.dlq',
+    'properties.bootstrap.servers' = 'kafka:9093',
+    'format' = 'json'
+);
+
+-- Note: JSON_VALUE(... RETURNING DOUBLE NULL ON ERROR) is unsafe here — Calcite's
+-- runtime cast can throw ClassCastException (Integer -> Double) *after* JSON_VALUE
+-- already returned successfully, bypassing NULL ON ERROR and crashing the job.
+-- Extracting as STRING (the default) and using TRY_CAST sidesteps that entirely.
+CREATE TEMPORARY VIEW coingecko_validation AS
+SELECT
+    raw_value,
+    kafka_ts,
+    CASE
+        WHEN JSON_VALUE(raw_value, '$.coin_id' NULL ON ERROR) IS NULL
+            THEN 'invalid_json_or_missing_coin_id'
+        WHEN TRY_CAST(JSON_VALUE(raw_value, '$.price_usd' NULL ON ERROR) AS DOUBLE) IS NULL
+            THEN 'missing_or_invalid_price_usd'
+        WHEN JSON_VALUE(raw_value, '$.event_time' NULL ON ERROR) IS NULL
+            THEN 'missing_event_time'
+        ELSE CAST(NULL AS STRING)
+    END AS reason
+FROM kafka_coingecko_raw;
+
+CREATE TEMPORARY VIEW binance_validation AS
+SELECT
+    raw_value,
+    kafka_ts,
+    CASE
+        WHEN JSON_VALUE(raw_value, '$.coin_id' NULL ON ERROR) IS NULL
+            THEN 'invalid_json_or_missing_coin_id'
+        WHEN TRY_CAST(JSON_VALUE(raw_value, '$.price_usd' NULL ON ERROR) AS DOUBLE) IS NULL
+            THEN 'missing_or_invalid_price_usd'
+        WHEN JSON_VALUE(raw_value, '$.event_time' NULL ON ERROR) IS NULL
+            THEN 'missing_event_time'
+        ELSE CAST(NULL AS STRING)
+    END AS reason
+FROM kafka_binance_raw;
+
 CREATE TEMPORARY VIEW unified_prices AS
 SELECT
     coin_id,
@@ -154,4 +230,13 @@ BEGIN
     INSERT INTO lake_crypto_prices
     SELECT symbol, price_usd, market_cap, change_24h, recorded_at, `source`, coin_id, dt
     FROM unified_prices;
+
+    INSERT INTO kafka_dlq
+    SELECT 'coingecko.prices.raw' AS source_topic, raw_value, reason, kafka_ts
+    FROM coingecko_validation
+    WHERE reason IS NOT NULL
+    UNION ALL
+    SELECT 'binance.trades.raw' AS source_topic, raw_value, reason, kafka_ts
+    FROM binance_validation
+    WHERE reason IS NOT NULL;
 END;

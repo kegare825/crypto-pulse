@@ -75,3 +75,15 @@ groups:
         annotations:
           summary: "PostgreSQL exporter cannot reach the database"
           description: "Warehouse unavailable — raw/silver/gold writes will fail."
+
+  - name: crypto_pulse_dlq
+    rules:
+      - alert: DeadLetterMessagesDetected
+        expr: increase(crypto_pulse_dlq_messages_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: dlq-monitor
+        annotations:
+          summary: "Messages are being routed to the dead-letter topic"
+          description: "{{ $value }} message(s) dead-lettered in the last 15 minutes. Check producer/schema health — see docs/adr/007-dead-letter-queue.md."

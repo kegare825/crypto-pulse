@@ -1,0 +1,79 @@
+name: dbt docs (GitHub Pages)
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build dbt docs
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: cryptopulse
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulse -d cryptopulse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: cryptopulse
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Postgres client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dbt
+        run: pip install dbt-core==1.9.0 dbt-postgres==1.9.0
+
+      # dbt run against seeded data so the docs catalog includes real
+      # column types and row-level lineage (not just parsed models)
+      - name: Init database, seed, dbt run
+        run: |
+          bash ci/init_postgres.sh
+          cd dbt && dbt deps --profiles-dir . && dbt run --profiles-dir .
+
+      - name: Generate documentation
+        run: bash scripts/generate_dbt_docs.sh
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/dbt
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -202,8 +202,16 @@ def ensure_dashboard(
         print(f"Updated dashboard: {spec['name']} (id={dashboard_id})")
         return dashboard_id
 
-    created = client.post("/api/dashboard", payload)
+    # POST /api/dashboard only accepts name/collection_id/description — it
+    # silently ignores a `dashcards` key in the creation payload (verified
+    # against Metabase 0.53.3.1). Cards must be attached with a follow-up PUT.
+    created = client.post(
+        "/api/dashboard",
+        {"name": payload["name"], "collection_id": payload["collection_id"]}
+        | ({"description": payload["description"]} if "description" in payload else {}),
+    )
     dashboard_id = int(created["id"])
+    client.put(f"/api/dashboard/{dashboard_id}", {"dashcards": dashcards})
     print(f"Created dashboard: {spec['name']} (id={dashboard_id})")
     return dashboard_id
 

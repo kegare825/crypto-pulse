@@ -1,19 +1,26 @@
-"""Dagster job and schedule for the transform pipeline."""
+"""Dagster definitions: dbt Software-Defined Assets + Great Expectations + schedule."""
 
 from __future__ import annotations
 
 import os
 
-from dagster import DefaultScheduleStatus, Definitions, ScheduleDefinition, job
+from dagster import (
+    DefaultScheduleStatus,
+    Definitions,
+    ScheduleDefinition,
+    define_asset_job,
+)
+from dagster_dbt import DbtCliResource
 
-from orchestration.assets import dbt_run_op, dbt_test_op, great_expectations_op
+from orchestration.assets import crypto_pulse_dbt_assets
+from orchestration.checks import data_quality_checks
+from orchestration.project import dbt_project
 
-
-@job(description="dbt run → dbt test → Great Expectations")
-def transform_job() -> None:
-    run = dbt_run_op()
-    test = dbt_test_op(after_run=run)
-    great_expectations_op(after_test=test)
+transform_job = define_asset_job(
+    name="transform_job",
+    selection="*",
+    description="dbt build (run + test per model) -> Great Expectations, as Software-Defined Assets.",
+)
 
 
 def _cron_from_interval_seconds() -> str:
@@ -34,6 +41,10 @@ transform_schedule = ScheduleDefinition(
 )
 
 defs = Definitions(
+    assets=[crypto_pulse_dbt_assets, data_quality_checks],
     jobs=[transform_job],
     schedules=[transform_schedule],
+    resources={
+        "dbt": DbtCliResource(project_dir=dbt_project),
+    },
 )

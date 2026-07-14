@@ -21,12 +21,54 @@ jobs:
       - name: Install test dependencies
         run: pip install -r requirements-dev.txt
 
-      - name: Run pytest
-        run: pytest tests/ -v
+      - name: Run pytest (unit + contract, excludes Docker-based integration)
+        run: pytest tests/ -v -m "not integration"
+
+  kafka-integration:
+    name: Kafka integration (Testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            tests/requirements-integration.txt
+
+      - name: Install test dependencies
+        run: |
+          pip install -r requirements-dev.txt
+          pip install -r tests/requirements-integration.txt
+
+      - name: Run Kafka round-trip integration tests
+        run: pytest tests/ -v -m integration
 
   dbt:
     name: dbt parse & compile
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: cryptopulse
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulse -d cryptopulse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: cryptopulse
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +79,7 @@ jobs:
           cache-dependency-path: transform/requirements.txt
 
       - name: Install dbt
-        run: pip install dbt-postgres==1.9.0
+        run: pip install dbt-core==1.9.0 dbt-postgres==1.9.0
 
       - name: dbt deps
         working-directory: dbt
@@ -85,7 +127,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dbt
-        run: pip install dbt-postgres==1.9.0
+        run: pip install dbt-core==1.9.0 dbt-postgres==1.9.0
 
       - name: Init database and seed
         run: bash ci/init_postgres.sh
@@ -146,6 +188,26 @@ jobs:
   dbt-docs:
     name: dbt docs generate
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: cryptopulse
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulse -d cryptopulse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: cryptopulse
     steps:
       - uses: actions/checkout@v4
 
@@ -154,7 +216,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dbt
-        run: pip install dbt-postgres==1.9.0
+        run: pip install dbt-core==1.9.0 dbt-postgres==1.9.0
 
       - name: Generate documentation
         run: bash scripts/generate_dbt_docs.sh
@@ -181,3 +243,34 @@ jobs:
             -v "${{ github.workspace }}/observability/prometheus:/etc/prometheus:ro" \
             prom/prometheus:v3.2.1 \
             check rules /etc/prometheus/alerts.yml
+
+  terraform:
+    name: Terraform (LocalStack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Start LocalStack
+        run: docker compose --profile terraform up -d localstack
+
+      - name: Wait for LocalStack
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4566/_localstack/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "LocalStack failed to start" >&2
+          exit 1
+
+      - name: Terraform init, validate, plan
+        working-directory: terraform
+        run: |
+          terraform init -input=false
+          terraform validate
+          terraform plan -no-color -input=false
