@@ -23,7 +23,13 @@ wait_for_postgres() {
 }
 
 wait_for_postgres
-echo "PostgreSQL ready. Starting Dagster (UI on port ${DAGSTER_PORT})"
+echo "PostgreSQL ready. Preparing dbt manifest for Dagster Software-Defined Assets..."
+
+# @dbt_assets parses dbt/target/manifest.json at import time — it must exist
+# before dagster-daemon/dagster-webserver load orchestration.definitions.
+(cd /app/dbt && dbt deps --profiles-dir . && dbt parse --profiles-dir .)
+
+echo "Starting Dagster (UI on port ${DAGSTER_PORT})"
 
 mkdir -p "${DAGSTER_HOME}"
 touch "${DAGSTER_HOME}/dagster.yaml"

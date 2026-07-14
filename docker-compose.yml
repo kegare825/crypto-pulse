@@ -64,6 +64,7 @@ services:
       KAFKA_TOPIC_RETENTION_MS: ${KAFKA_TOPIC_RETENTION_MS:-604800000}
       KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-3}
       KAFKA_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_DLQ_TOPIC: ${KAFKA_DLQ_TOPIC:-crypto-pulse.dlq}
     volumes:
       - ./ci/kafka_init_topics.sh:/init/kafka_init_topics.sh:ro
     entrypoint: ["/bin/bash", "/init/kafka_init_topics.sh"]
@@ -131,7 +132,8 @@ services:
       dockerfile: ingest/Dockerfile
     container_name: crypto-pulse-ingest
     env_file:
-      - .env
+      - path: .env
+        required: false
     ports:
       - "8000:8000"
     depends_on:
@@ -147,9 +149,27 @@ services:
       dockerfile: binance-ingest/Dockerfile
     container_name: crypto-pulse-binance-ingest
     env_file:
-      - .env
+      - path: .env
+        required: false
     ports:
       - "8001:8001"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  dlq-monitor:
+    build:
+      context: .
+      dockerfile: dlq-monitor/Dockerfile
+    container_name: crypto-pulse-dlq-monitor
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8002:8002"
     depends_on:
       kafka:
         condition: service_healthy
@@ -166,7 +186,8 @@ services:
       - "8081:8081"
       - "9249:9249"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -209,7 +230,8 @@ services:
     ports:
       - "9250:9250"
     env_file:
-      - .env
+      - path: .env
+        required: false
     depends_on:
       flink-checkpoints-volume-init:
         condition: service_completed_successfully
@@ -287,7 +309,8 @@ services:
       dockerfile: transform/Dockerfile
     container_name: crypto-pulse-transform
     env_file:
-      - .env
+      - path: .env
+        required: false
     ports:
       - "3002:3002"
     depends_on:
@@ -372,6 +395,27 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # LocalStack emulates AWS S3/IAM for terraform/ (profile: terraform). Not used by the main pipeline.
+  localstack:
+    profiles: ["terraform"]
+    image: localstack/localstack:3
+    container_name: crypto-pulse-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3,iam
+      DEFAULT_REGION: eu-west-1
+      EAGER_SERVICE_LOADING: 1
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   kafka_data:
@@ -380,3 +424,4 @@ volumes:
   prometheus_data:
   grafana_data:
   metabase_data:
+  localstack_data:
