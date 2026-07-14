@@ -49,6 +49,26 @@ jobs:
   dbt:
     name: dbt parse & compile
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: cryptopulse
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulse -d cryptopulse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: cryptopulse
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +79,7 @@ jobs:
           cache-dependency-path: transform/requirements.txt
 
       - name: Install dbt
-        run: pip install dbt-postgres==1.9.0
+        run: pip install dbt-core==1.9.0 dbt-postgres==1.9.0
 
       - name: dbt deps
         working-directory: dbt
@@ -107,7 +127,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dbt
-        run: pip install dbt-postgres==1.9.0
+        run: pip install dbt-core==1.9.0 dbt-postgres==1.9.0
 
       - name: Init database and seed
         run: bash ci/init_postgres.sh
@@ -168,6 +188,26 @@ jobs:
   dbt-docs:
     name: dbt docs generate
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: cryptopulse
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulse -d cryptopulse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: cryptopulse
     steps:
       - uses: actions/checkout@v4
 
@@ -176,7 +216,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dbt
-        run: pip install dbt-postgres==1.9.0
+        run: pip install dbt-core==1.9.0 dbt-postgres==1.9.0
 
       - name: Generate documentation
         run: bash scripts/generate_dbt_docs.sh
