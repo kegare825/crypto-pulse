@@ -8,12 +8,20 @@ Medallion zones **raw → silver → gold**, contract-validated ingest, CI-teste
 
 > **Portfolio project** — not financial advice. Design decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [ADRs](docs/adr/README.md) · [SLA](docs/SLA.md)
 
+## Portfolio highlights
+
+- **Stack:** Kafka, Flink SQL, dbt, Dagster, Great Expectations, MinIO, PostgreSQL, Metabase, Grafana, Prometheus
+- **Pattern:** medallion (raw → silver → gold) with lakehouse-lite dual-write — Parquet lake for archive, Postgres for serving
+- **Quality:** JSON Schema contract at ingest (CI **and** runtime), dbt tests, GX freshness SLAs (< 10 min), 8 gold marts, dead-letter queue for invalid payloads
+- **Ops:** exactly-once Flink checkpoints + watchdog self-healing, Prometheus alerting, 7-job CI (incl. Testcontainers Kafka integration) + nightly smoke E2E
+- **Docs:** [architecture](docs/ARCHITECTURE.md), [7 ADRs](docs/adr/README.md), [SLA policy](docs/SLA.md), [dbt docs on GitHub Pages](https://kegare825.github.io/crypto-pulse/)
+
 ## What this demonstrates
 
 - **Streaming ingest** — multi-source Kafka, Flink SQL dual sink (Postgres + Parquet lake)
 - **Lakehouse-lite** — MinIO S3-compatible storage decoupled from PostgreSQL serving layer
 - **Data quality** — JSON Schema at the edge, dbt tests, Great Expectations, freshness SLAs
-- **Platform ops** — Dagster orchestration, Prometheus/Grafana, CI + nightly smoke E2E
+- **Platform ops** — Dagster Software-Defined Assets (dbt lineage graph), Prometheus/Grafana, CI + nightly smoke E2E
 
 ## Architecture (high level)
 
@@ -66,15 +74,19 @@ flowchart LR
 
 ## Screenshots
 
-Add captures under [`docs/screenshots/`](docs/screenshots/) after running the stack (see that folder for filenames). Suggested demo views:
+> Captured from a live run (see [demo capture session](#demo-capture-session) to reproduce).
 
-| File | Shows |
-|------|-------|
-| `metabase-source-comparison.png` | CoinGecko vs Binance spread table |
-| `metabase-spread-chart.png` | Spread % bar chart |
-| `grafana-pipeline-health.png` | Ops dashboard |
-| `minio-partitions.png` | Hive-style `source=/coin_id=/dt=` layout |
-| `dagster-transform-job.png` | Successful `transform_job` run |
+| CoinGecko vs Binance spread (Metabase) | Spread % by coin (Metabase) |
+|---|---|
+| ![Source comparison](docs/screenshots/metabase-source-comparison.png) | ![Spread chart](docs/screenshots/metabase-spread-chart.png) |
+
+| Pipeline health (Grafana) | `transform_job` run (Dagster) |
+|---|---|
+| ![Grafana pipeline health](docs/screenshots/grafana-pipeline-health.png) | ![Dagster transform job](docs/screenshots/dagster-transform-job.png) |
+
+| Hive-style lake partitions (MinIO) |
+|---|
+| ![MinIO partitions](docs/screenshots/minio-partitions.png) |
 
 ## Verify in 5 minutes
 
@@ -109,12 +121,32 @@ docker compose up --build
 | `minio` | 9000 / 9001 | Storage layer (Parquet raw, S3 console) |
 | `ingest` | 8000 | CoinGecko → `coingecko.prices.raw` |
 | `binance-ingest` | 8001 | Binance WS → `binance.trades.raw` (~1 msg/s per symbol) |
+| `dlq-monitor` | 8002 | Watches `crypto-pulse.dlq`, exposes dead-letter metrics |
 | `flink-*` | 8081 | Kafka → Postgres + MinIO (dual sink) |
 | `flink-watchdog` | — | Resubmits Flink job if none running |
 | `transform` | 3002 | Dagster → dbt + Great Expectations |
 | `metabase` | 3000 | BI on schema `gold` |
 | `grafana` | 3001 | Pipeline health |
 | `prometheus` | 9090 | Metrics |
+
+## Demo capture session
+
+Production-like defaults (`.env.example`: 60s polling, 300s transform) are intentionally conservative, so fresh stacks take a while to produce dense charts. For screenshots or a live demo, use the demo profile:
+
+```bash
+cp .env.demo .env                    # 15s CoinGecko polling, 60s Dagster refresh
+docker compose up --build
+bash scripts/seed_demo_history.sh    # 7 days of hourly history → daily trend charts
+```
+
+The seed backfills `raw.crypto_prices` (idempotent) and runs `dbt run --full-refresh` so the incremental silver model picks up the historical rows. `mart_daily_prices` then shows a full week of points instead of a single day.
+
+Revert when done:
+
+```bash
+cp .env.example .env
+docker compose up -d --force-recreate ingest transform
+```
 
 ## Fault tolerance
 
@@ -125,6 +157,7 @@ Single-node portfolio setup — not multi-broker HA, but survives common restart
 | **Kafka** | Persistent `kafka_data` volume, `restart: unless-stopped`, explicit topics (7d retention), idempotent producers (`acks=all`) |
 | **Flink** | Checkpoints every 30s (EXACTLY_ONCE), fixed-delay restart, sink retries, offset restore from checkpoints |
 | **Recovery** | `flink-watchdog` resubmits the SQL pipeline when JobManager has no active job |
+| **Bad data** | Invalid/malformed payloads routed to `crypto-pulse.dlq` instead of silently dropped ([ADR 007](docs/adr/007-dead-letter-queue.md)) |
 
 Quick test: `docker compose restart kafka flink-taskmanager` — ingest reconnects; Flink heals via checkpoints + watchdog.
 
@@ -132,7 +165,7 @@ Quick test: `docker compose restart kafka flink-taskmanager` — ingest reconnec
 
 | Resource | Description |
 |----------|-------------|
-| [dbt docs](#dbt) | Column lineage (`dbt docs generate`; artifact in CI) |
+| [dbt docs (live)](https://kegare825.github.io/crypto-pulse/) | Column lineage — published to GitHub Pages on every push to `main` |
 | [`dbt/models/*/schema.yml`](dbt/models/gold/schema.yml) | Model descriptions and tests |
 | [`contracts/crypto_price_event.schema.json`](contracts/crypto_price_event.schema.json) | Kafka event contract (CI **and** runtime) |
 | [docs/DATA_LAKE.md](docs/DATA_LAKE.md) | MinIO layout, Iceberg roadmap |
@@ -210,6 +243,7 @@ Every push/PR runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 | Job | Validates |
 |-----|-----------|
 | **test** | pytest, JSON contract, runtime validator |
+| **kafka-integration** | Testcontainers — real Kafka broker round trip (producer config, consumer, contract) |
 | **dbt** | `dbt parse` + `dbt compile` |
 | **dbt-integration** | Ephemeral Postgres → `dbt run` + `dbt test` |
 | **quality** | Seed → `dbt run` → Great Expectations |
@@ -218,15 +252,24 @@ Every push/PR runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
 Nightly smoke: [`.github/workflows/smoke.yml`](.github/workflows/smoke.yml) — same path as `scripts/smoke_test.sh`.
 
+On push to `main`, [`.github/workflows/dbt-docs-pages.yml`](.github/workflows/dbt-docs-pages.yml) builds dbt docs against a seeded Postgres and deploys them to [GitHub Pages](https://kegare825.github.io/crypto-pulse/).
+
 Branch protection: [docs/CI.md](docs/CI.md).
 
 **Local parity:**
 
 ```bash
 pip install -r requirements-dev.txt
-pytest tests/ -v
+pytest tests/ -v -m "not integration"
 bash ci/init_postgres.sh
 cd dbt && dbt deps --profiles-dir . && dbt run --profiles-dir . && dbt test --profiles-dir .
+```
+
+Kafka integration tests (real broker via Testcontainers, Docker required):
+
+```bash
+pip install -r tests/requirements-integration.txt
+pytest tests/ -v -m integration
 ```
 
 ## Event contract
@@ -282,12 +325,12 @@ bash scripts/verify_lake.sh
 
 ## Orchestration (Dagster)
 
-Service `transform` runs scheduled job `transform_job`: `dbt run` → `dbt test` → Great Expectations.
+Service `transform` runs scheduled job `transform_job` as **Software-Defined Assets**: every silver/gold dbt model is its own asset node (parsed from `dbt/target/manifest.json` via `dagster-dbt`), with a downstream `data_quality_checks` asset running Great Expectations.
 
 - UI: http://localhost:3002
 - Interval: `TRANSFORM_INTERVAL_SECONDS` (default 300s)
 - Schedule **`transform_schedule`** starts automatically (`RUNNING`); first run kicks off ~15s after container start
-- **Jobs** (not Assets): open **Jobs** → `transform_job`, or **Overview** → **Runs** for history. The Assets tab is empty by design (ops-based job, not Software-Defined Assets).
+- **Assets tab**: full lineage graph — `stg_crypto_prices` → `crypto_prices_clean` → gold marts → `data_quality_checks`. **Jobs** → `transform_job` or **Overview** → **Runs** for history.
 - Manual run:
 
 ```bash
@@ -404,5 +447,5 @@ docker compose run --rm transform bash -c "dbt deps --profiles-dir /app/dbt && d
 |-------|--------|
 | **C3** | Iceberg on MinIO + dbt external tables — [ADR 005](docs/adr/005-iceberg-roadmap.md) |
 | **D** | Terraform (S3 / RDS / IAM) |
-| Optional | Alertmanager → Slack/email, DLQ topic for invalid JSON |
+| Optional | Alertmanager → Slack/email routing, DLQ replay/reprocessing tooling |
 

@@ -1,0 +1,4 @@
+# Extra deps for tests/test_kafka_integration.py (Testcontainers, real Kafka broker).
+# Install alongside requirements-dev.txt. Requires a reachable Docker daemon.
+testcontainers==4.14.2
+confluent-kafka==2.8.0

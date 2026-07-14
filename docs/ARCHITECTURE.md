@@ -62,6 +62,10 @@ Existing BI dashboards expect one row per coin from the “reference” aggregat
 - **dbt tests** — schema constraints at transform time (fast, versioned with models).
 - **Great Expectations** — runtime freshness and cross-zone sanity checks on a schedule.
 
+### Dead-letter queue for invalid payloads
+
+Flink's Kafka sources tolerate malformed JSON (`json.ignore-parse-errors`) so one bad message can't crash the job — but that used to mean invalid records vanished with no trace. A second raw-format consumer per topic now classifies and routes anything that fails basic shape checks to `crypto-pulse.dlq`, monitored by the `dlq-monitor` service (Prometheus metric + alert). Details: [ADR 007](adr/007-dead-letter-queue.md).
+
 
 
 ### Observability split
@@ -98,7 +102,7 @@ All producers emit the same JSON shape, validated in CI against `contracts/crypt
 | Secrets   | Default passwords in compose   | Secrets manager + env injection              |
 | Deploy    | Docker Compose local           | Terraform + managed RDS/MSK                  |
 | Flink ops | Checkpoints + watchdog resubmit | Savepoints, managed Flink, alert on job loss |
-| DLQ       | Bad JSON silently skipped      | Dead-letter topic + monitoring               |
+| DLQ       | Implemented — invalid payloads split to `crypto-pulse.dlq`, `dlq-monitor` exposes metrics ([ADR 007](adr/007-dead-letter-queue.md)) | Auto-replay/reprocessing tooling, Slack/email alert routing |
 
 
 

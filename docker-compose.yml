@@ -64,6 +64,7 @@ services:
       KAFKA_TOPIC_RETENTION_MS: ${KAFKA_TOPIC_RETENTION_MS:-604800000}
       KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-3}
       KAFKA_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_DLQ_TOPIC: ${KAFKA_DLQ_TOPIC:-crypto-pulse.dlq}
     volumes:
       - ./ci/kafka_init_topics.sh:/init/kafka_init_topics.sh:ro
     entrypoint: ["/bin/bash", "/init/kafka_init_topics.sh"]
@@ -150,6 +151,22 @@ services:
       - .env
     ports:
       - "8001:8001"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  dlq-monitor:
+    build:
+      context: .
+      dockerfile: dlq-monitor/Dockerfile
+    container_name: crypto-pulse-dlq-monitor
+    env_file:
+      - .env
+    ports:
+      - "8002:8002"
     depends_on:
       kafka:
         condition: service_healthy

@@ -22,6 +22,12 @@ scrape_configs:
         labels:
           service: binance-producer
 
+  - job_name: dlq-monitor
+    static_configs:
+      - targets: ["dlq-monitor:8002"]
+        labels:
+          service: dlq-monitor
+
   - job_name: kafka
     static_configs:
       - targets: ["kafka-exporter:9308"]

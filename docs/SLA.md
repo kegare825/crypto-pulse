@@ -32,6 +32,7 @@ Used in `gold.mart_freshness_by_source`:
 | **Raw stream** | Flink SQL | Postgres raw, MinIO lake |
 | **Silver / gold** | dbt (Dagster schedule) | Metabase, GX |
 | **Quality gates** | dbt tests + `quality/validate.py` | CI, transform job |
+| **Dead-letter** | Flink SQL validity split + `dlq-monitor` | Prometheus alert (`DeadLetterMessagesDetected`) |
 
 ## On failure
 

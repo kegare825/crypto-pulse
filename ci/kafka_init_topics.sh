@@ -21,5 +21,6 @@ create_topic() {
 
 create_topic "coingecko.prices.raw"
 create_topic "binance.trades.raw"
+create_topic "${KAFKA_DLQ_TOPIC:-crypto-pulse.dlq}"
 
 echo "Kafka topics ready"
