@@ -13,8 +13,8 @@ Medallion zones **raw → silver → gold**, contract-validated ingest, CI-teste
 - **Stack:** Kafka, Flink SQL, dbt, Dagster, Great Expectations, MinIO, PostgreSQL, Metabase, Grafana, Prometheus
 - **Pattern:** medallion (raw → silver → gold) with lakehouse-lite dual-write — Parquet lake for archive, Postgres for serving
 - **Quality:** JSON Schema contract at ingest (CI **and** runtime), dbt tests, GX freshness SLAs (< 10 min), 8 gold marts, dead-letter queue for invalid payloads
-- **Ops:** exactly-once Flink checkpoints + watchdog self-healing, Prometheus alerting, 7-job CI (incl. Testcontainers Kafka integration) + nightly smoke E2E
-- **Docs:** [architecture](docs/ARCHITECTURE.md), [7 ADRs](docs/adr/README.md), [SLA policy](docs/SLA.md), [dbt docs on GitHub Pages](https://kegare825.github.io/crypto-pulse/)
+- **Ops:** exactly-once Flink checkpoints + watchdog self-healing, Prometheus alerting, 8-job CI (incl. Testcontainers Kafka + Terraform/LocalStack) + nightly smoke E2E
+- **Docs:** [architecture](docs/ARCHITECTURE.md), [7 ADRs](docs/adr/README.md), [SLA policy](docs/SLA.md), [incident postmortems](docs/incidents/README.md), [dbt docs on GitHub Pages](https://kegare825.github.io/crypto-pulse/)
 
 ## What this demonstrates
 
@@ -169,8 +169,10 @@ Quick test: `docker compose restart kafka flink-taskmanager` — ingest reconnec
 | [`dbt/models/*/schema.yml`](dbt/models/gold/schema.yml) | Model descriptions and tests |
 | [`contracts/crypto_price_event.schema.json`](contracts/crypto_price_event.schema.json) | Kafka event contract (CI **and** runtime) |
 | [docs/DATA_LAKE.md](docs/DATA_LAKE.md) | MinIO layout, Iceberg roadmap |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Design decisions and known limits |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Design decisions, scaling/cost notes, and known limits |
+| [docs/incidents/](docs/incidents/README.md) | Blameless postmortems (e.g. Flink DLQ crash-loop) |
 | [docs/adr/](docs/adr/README.md) | Architecture Decision Records |
+| [terraform/](terraform/README.md) | IaC for S3 lake + IAM via LocalStack (no AWS account) |
 | [docs/SLA.md](docs/SLA.md) | Freshness and quality policy |
 
 Generate dbt docs locally:
@@ -249,6 +251,7 @@ Every push/PR runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 | **quality** | Seed → `dbt run` → Great Expectations |
 | **dbt-docs** | `dbt docs generate` (downloadable artifact) |
 | **infra** | `docker compose config` + `promtool check rules` |
+| **terraform** | LocalStack → `terraform validate` + `plan` (S3 lake + IAM) |
 
 Nightly smoke: [`.github/workflows/smoke.yml`](.github/workflows/smoke.yml) — same path as `scripts/smoke_test.sh`.
 
@@ -446,6 +449,6 @@ docker compose run --rm transform bash -c "dbt deps --profiles-dir /app/dbt && d
 | Phase | Focus |
 |-------|--------|
 | **C3** | Iceberg on MinIO + dbt external tables — [ADR 005](docs/adr/005-iceberg-roadmap.md) |
-| **D** | Terraform (S3 / RDS / IAM) |
+| **D (partial)** | Terraform S3/IAM on LocalStack — [`terraform/`](terraform/README.md); RDS/MSK modules for real AWS later |
 | Optional | Alertmanager → Slack/email routing, DLQ replay/reprocessing tooling |
 

@@ -15,7 +15,7 @@ Producers already validate against the shared contract before publishing (ADR 00
 Add a **dead-letter topic** (`crypto-pulse.dlq`, default name, configurable via `KAFKA_DLQ_TOPIC`) fed directly from Flink SQL:
 
 - A second consumer group per source topic (`flink-crypto-pulse-*-dlq`) reads the same topics using `'format' = 'raw'` — i.e. as an opaque `STRING`, bypassing JSON deserialization entirely so nothing is lost before inspection.
-- `JSON_VALUE(... NULL ON ERROR)` checks (coin_id, price_usd castable to `DOUBLE`, event_time) classify each row; anything that fails is written to `kafka_dlq` with the original raw string, a `reason`, and the Kafka record timestamp.
+- `JSON_VALUE` + `TRY_CAST(... AS DOUBLE)` checks (coin_id, price_usd, event_time) classify each row; anything that fails is written to `kafka_dlq` with the original raw string, a `reason`, and the Kafka record timestamp. Do **not** use `JSON_VALUE(... RETURNING DOUBLE NULL ON ERROR)` here — see [postmortem 2026-07-13](../incidents/2026-07-13-flink-dlq-classcastexception.md).
 - Both DLQ inserts run inside the same `EXECUTE STATEMENT SET` as the existing dual-sink inserts, so it stays **one Flink job** (keeps `flink-watchdog`'s "no running jobs" check meaningful).
 - A small dedicated service, `dlq-monitor` (mirrors `ingest/`/`binance-ingest/` shape), consumes `crypto-pulse.dlq`, logs each rejected payload, and exposes `crypto_pulse_dlq_messages_total{source_topic,reason}` on `:8002/metrics`.
 - Prometheus alert `DeadLetterMessagesDetected` fires on any dead-lettered message sustained for 5 minutes.
