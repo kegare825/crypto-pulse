@@ -16,7 +16,7 @@ datasources:
     url: postgres:5432
     user: pulse
     secureJsonData:
-      password: pulse
+      password: pulse  # demo-only credentials, override via env in real deployments
     jsonData:
       database: cryptopulse
       sslmode: disable

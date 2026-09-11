@@ -1,4 +1,11 @@
+# Local environment files (may hold real credentials) — never commit.
+# Templates .env.example / .env.demo contain demo values only and stay tracked.
 .env
+**/.env
+.env.local
+.env.*.local
+!.env.example
+!.env.demo
 .venv/
 __pycache__/
 *.py[cod]

@@ -13,6 +13,8 @@ terraform {
 }
 
 provider "aws" {
+  # demo-only credentials: LocalStack accepts any value; override via env
+  # (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY) in real deployments.
   access_key                  = "test"
   secret_key                  = "test"
   region                      = var.aws_region

@@ -110,9 +110,11 @@ More checks: [Verify the pipeline](#verify-the-pipeline) below.
 ## Quick start
 
 ```bash
-cp .env.example .env
+cp .env.example .env   # .env is git-ignored; never commit it
 docker compose up --build
 ```
+
+`.env.example` (and `.env.demo`) ship only local demo credentials (`pulse`/`pulse`, `minioadmin`, `admin`). Edit your local `.env` to override them; in a real deployment inject them via your secret manager instead of committing them.
 
 | Service | Port | Role |
 |---------|------|------|

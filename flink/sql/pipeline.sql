@@ -86,6 +86,7 @@ CREATE TABLE postgres_prices (
     'connector' = 'jdbc',
     'url' = 'jdbc:postgresql://postgres:5432/cryptopulse',
     'table-name' = 'raw.crypto_prices',
+    -- demo-only credentials, override via env in real deployments (see docker-compose.yml)
     'username' = 'pulse',
     'password' = 'pulse',
     'driver' = 'org.postgresql.Driver',
